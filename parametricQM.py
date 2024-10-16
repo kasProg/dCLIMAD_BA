@@ -10,91 +10,71 @@ import numpy as np
 import pickle
 import valid_crd
 import tqdm
-from concurrent.futures import ThreadPoolExecutor
-from scipy.stats import wasserstein_distance
 from model import QuantileMappingModel, QuantileMappingModel_Poly2
-from loss import rainy_day_loss, distributional_loss_interpolated
+from loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse
+from data import process_data
 from sklearn.preprocessing import StandardScaler
 
-train = 0
+###-----The code is currently accustomed to Livneh Data format ----###
 
-# Step 1: Generate a set of Gaussian random numbers (x)
 torch.manual_seed(42)
 device = torch.device('cuda:5')
+
+dataset = '/data/kas7897/Livneh/'
+
+##if running synthetic case
+noise_type = 'bci_noisy01d'
+train_period = [1980, 1990]
+test_period = [1980, 1990]
+train = 0  #training = 1; else test
+load_data = 1
+
+##number of coordinates; if all then set to 'all'
+num = 1000
 
 #extracting valid lat-lon pairs with non-nan prcp
 ds_sample = xr.open_dataset(f"/data/kas7897/Livneh/prec.1980.nc")
 valid_coords = valid_crd.valid_lat_lon(ds_sample)
 
+#processing elevation data
 elev = xr.open_dataset('/data/kas7897/diffDownscale/elev_Livneh.nc')
-test_period = [1991, 1995]
-num = 1000
-
-
-def load_and_process_year(year, valid_coords):
-    x_year = xr.open_dataset(f'/data/kas7897/Livneh/upscale_1by4_bci_noisy01d/prec_{year}.nc')
-    y_year = xr.open_dataset(f'/data/kas7897/Livneh/prec.{year}.nc')
-
-    x_data = x_year['prec'].sel(lat=xr.DataArray(valid_coords[:num, 0], dims='points'),
-                                lon=xr.DataArray(valid_coords[:num, 1], dims='points'),
-                                method='nearest').values
-    y_data = y_year['prec'].sel(lat=xr.DataArray(valid_coords[:num, 0], dims='points'),
-                                lon=xr.DataArray(valid_coords[:num, 1], dims='points'),
-                                method='nearest').values
-
-
-    return x_data, y_data
-    # return x_data
-
 elev_data = elev['elevation'].sel(lat=xr.DataArray(valid_coords[:num, 0], dims='points'),
                              lon=xr.DataArray(valid_coords[:num, 1], dims='points'),
                              method='nearest').values
 
-# elevation_scaler = StandardScaler()
-# elevation_scaler.fit(elev_data.reshape(-1, 1))
+pathx = dataset + noise_type
 
-def process_data(train_period, valid_coords, device):
-    with ThreadPoolExecutor() as executor:
-        results = list(executor.map(load_and_process_year,
-                                    range(train_period[0], train_period[1]),
-                                    [valid_coords] * (train_period[1] - train_period[0])))
+if train==1:
+    period = train_period
+else:
+    period = test_period
 
-    x_list, y_list = zip(*results)
-    # x_list = results
+if load_data==0:
+    x = process_data(pathx, period, valid_coords, num, device)
+    y = process_data(dataset, period, valid_coords, num, device)
+    torch.save(x, f'{dataset}QM_input/x{period}{num}_{noise_type}.pt')
+    torch.save(y, f'{dataset}QM_input/y{period}{num}.pt')
+else:
+    x = torch.load(f'{dataset}/QM_input/x{period}{num}_{noise_type}.pt', weights_only=False)
+    y = torch.load(f'{dataset}/QM_input/y{period}{num}.pt', weights_only=False)
 
-    x = np.concatenate(x_list, axis=0)
-    y = np.concatenate(y_list, axis=0)
 
-
-    return torch.tensor(x).to(device), torch.tensor(y).to(device)
-    # return torch.tensor(x).to(device)
-
-train_period = [1980, 1990]
-
-# x, y = process_data(test_period, valid_coords, device)
-# x = process_data(train_period, valid_coords, device)
-# torch.save(x,f'/data/kas7897/Livneh/QM_input/x{test_period}{num}_bci_noisy01d.pt')
-# torch.save(y,f'/data/kas7897/Livneh/QM_input/y{test_period}{num}.pt')
-x = torch.load(f'/data/kas7897/Livneh/QM_input/x{num}_bci_noisy01d.pt', weights_only=False)
-y = torch.load(f'/data/kas7897/Livneh/QM_input/y{num}.pt', weights_only=False)
 elev_tensor = torch.tensor(elev_data).to(x.dtype).to(device)
 torch.set_default_dtype(x.dtype)
 
 num_series = x.shape[1]
 
+## Choose model
+# model = QuantileMappingModel_Poly2(num_series=num_series, degree=3, hidden_dim=64).to(device)
+model = QuantileMappingModel(num_series=num_series, hidden_dim=64).to(device)
+
 if train == 1:
-    # # Step 5: Instantiate the model, define the optimizer and the loss function
-    degree = 3
-    # model = QuantileMappingModel_Poly2(num_series=num_series, degree=3, hidden_dim=64).to(device)
-    model = QuantileMappingModel(num_series=num_series, hidden_dim=64).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.01)
     balance_loss = 0.1  # Adjust this weight to balance between distributional and rainy day losses
 
     # Training loop
-    num_epochs = 1000
-    # progress_bar = tqdm(range(num_epochs), desc='Epochs')
+    num_epochs = 200
     for epoch in range(num_epochs):
-        # for epoch in range(1):
         model.train()
 
         # Forward pass
@@ -114,44 +94,14 @@ if train == 1:
         if epoch % 50 == 0:
             print(f'Epoch {epoch}, Loss: {loss.item():.4f}')
 
-    torch.save(model.state_dict(), 'QM_model_weights.pth')
+    torch.save(model.state_dict(), f'QM_model_{num}{train_period}_{noise_type}.pth')
 
 else:
-    model = QuantileMappingModel(num_series=num_series, hidden_dim=64).to(device)
-    model.load_state_dict(torch.load('QM_model_weights.pth', weights_only=True))
+    model.load_state_dict(torch.load(f'QM_model_{num}{train_period}_{noise_type}.pth', weights_only=True))
     model.eval()
 
-# Print skewness to verify positive skew
-# print("Skewness of original x: ", skew(x.cpu().detach().numpy()))
-# print("Skewness of target y: ", skew(y.cpu().detach().numpy()))
-# print("Skewness of transformed x: ", skew(transformed_x))
 
 transformed_x = model(x, elev_tensor).cpu().detach().numpy()
-
-def compare_distributions(transformed_x, x, y):
-    # Assuming transformed_x, x, and y are 2D tensors of shape (num_time_series, time_steps)
-    num_series = transformed_x.shape[1]
-    wasserstein_distances = []
-
-    for i in range(num_series):
-        # Calculate Wasserstein distance between transformed_x and y
-        dist_transformed = wasserstein_distance(transformed_x[:,i], y[:,i].cpu().numpy())
-
-        # Calculate Wasserstein distance between x and y
-        dist_original = wasserstein_distance(x[:, i].cpu().numpy(), y[:,i].cpu().numpy())
-
-        # Calculate improvement ratio
-        improvement_ratio = (dist_original - dist_transformed) / dist_original
-
-        wasserstein_distances.append(improvement_ratio)
-
-    # Average improvement across all series
-    avg_improvement = sum(wasserstein_distances) / num_series
-
-    return avg_improvement, wasserstein_distances
-
-def rmse(actual, predicted):
-    return np.sqrt(np.mean((actual - predicted) ** 2, axis=0))
 
 # Usage in your training loop
 avg_improvement, individual_improvements = compare_distributions(transformed_x, x, y)
@@ -177,3 +127,8 @@ plt.title("Transformed x vs Target y")
 plt.legend()
 
 plt.show()
+
+# Print skewness to verify positive skew
+# print("Skewness of original x: ", skew(x.cpu().detach().numpy()))
+# print("Skewness of target y: ", skew(y.cpu().detach().numpy()))
+# print("Skewness of transformed x: ", skew(transformed_x))

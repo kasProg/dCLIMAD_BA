@@ -1,5 +1,5 @@
-data.py
-data2.py
+old_data.py
+old_data2.py
 elev_interp.py
 fno1d_model_weights.pth
 staresdm.py

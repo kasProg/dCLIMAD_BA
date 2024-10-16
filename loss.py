@@ -1,5 +1,6 @@
 import torch
-
+from scipy.stats import wasserstein_distance
+import numpy as np
 
 def interpolate_quantiles(data, device, num_quantiles=200):
     """
@@ -35,3 +36,28 @@ def rainy_day_loss(transformed_x, target_y):
     # Calculate the mean absolute difference in the number of rainy days across all series
     rainy_days_loss = torch.mean(torch.abs(rainy_days_transformed - rainy_days_target).to(transformed_x.dtype))
     return rainy_days_loss
+
+def compare_distributions(transformed_x, x, y):
+    # Assuming transformed_x, x, and y are 2D tensors of shape (num_time_series, time_steps)
+    num_series = transformed_x.shape[1]
+    wasserstein_distances = []
+
+    for i in range(num_series):
+        # Calculate Wasserstein distance between transformed_x and y
+        dist_transformed = wasserstein_distance(transformed_x[:,i], y[:,i].cpu().numpy())
+
+        # Calculate Wasserstein distance between x and y
+        dist_original = wasserstein_distance(x[:, i].cpu().numpy(), y[:,i].cpu().numpy())
+
+        # Calculate improvement ratio
+        improvement_ratio = (dist_original - dist_transformed) / dist_original
+
+        wasserstein_distances.append(improvement_ratio)
+
+    # Average improvement across all series
+    avg_improvement = sum(wasserstein_distances) / num_series
+
+    return avg_improvement, wasserstein_distances
+
+def rmse(actual, predicted):
+    return np.sqrt(np.mean((actual - predicted) ** 2, axis=0))
