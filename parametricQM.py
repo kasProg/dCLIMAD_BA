@@ -88,7 +88,7 @@ if train == 1:
     # model = QuantileMappingModel_Poly2(num_series=num_series, degree=3, hidden_dim=64).to(device)
     model = QuantileMappingModel(num_series=num_series, hidden_dim=64).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.01)
-    balance_loss = 0.01  # Adjust this weight to balance between distributional and rainy day losses
+    balance_loss = 0.1  # Adjust this weight to balance between distributional and rainy day losses
 
     # Training loop
     num_epochs = 1000
