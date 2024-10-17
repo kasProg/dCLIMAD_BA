@@ -108,10 +108,10 @@ if train == 1:
         if epoch % 50 == 0:
             print(f'Epoch {epoch}, Loss: {loss.item():.4f}')
 
-    torch.save(model.state_dict(), f'QM_{model_type}_{num}{train_period}_{noise_type}.pth')
+    torch.save(model.state_dict(), f'models/QM_{model_type}_{num}{train_period}_{noise_type}.pth')
 
 else:
-    model.load_state_dict(torch.load(f'QM_{model_type}_{num}{train_period}_{noise_type}.pth', weights_only=True))
+    model.load_state_dict(torch.load(f'models/QM_{model_type}_{num}{train_period}_{noise_type}.pth', weights_only=True))
     model.eval()
 
 
