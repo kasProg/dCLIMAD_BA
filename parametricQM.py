@@ -23,11 +23,14 @@ device = torch.device('cuda:5')
 dataset = '/data/kas7897/Livneh/'
 
 ##if running synthetic case
-noise_type = 'bci_noisy01d'
+noise_type = 'upscale_1by4_Wnoisy1_bci'
+# noise_type = 'bci_Wnoisy001d'
 train_period = [1980, 1990]
 test_period = [1980, 1990]
-train = 0  #training = 1; else test
-load_data = 1
+train = 0#training = 1; else test
+
+model_type = 'SST' #[SST/model, Poly2]
+degree = 3 # only if model_type = Poly
 
 ##number of coordinates; if all then set to 'all'
 num = 1000
@@ -49,14 +52,22 @@ if train==1:
 else:
     period = test_period
 
-if load_data==0:
-    x = process_data(pathx, period, valid_coords, num, device)
-    y = process_data(dataset, period, valid_coords, num, device)
-    torch.save(x, f'{dataset}QM_input/x{period}{num}_{noise_type}.pt')
-    torch.save(y, f'{dataset}QM_input/y{period}{num}.pt')
-else:
+
+if os.path.exists(f'{dataset}QM_input/x{period}{num}_{noise_type}.pt'):
+    print('loading x...')
     x = torch.load(f'{dataset}/QM_input/x{period}{num}_{noise_type}.pt', weights_only=False)
-    y = torch.load(f'{dataset}/QM_input/y{period}{num}.pt', weights_only=False)
+else:
+    print("processing x data...")
+    x = process_data(pathx, period, valid_coords, num, device)
+    torch.save(x, f'{dataset}QM_input/x{period}{num}_{noise_type}.pt')
+
+if os.path.exists(f'{dataset}QM_input/y{period}{num}.pt'):
+    print('loading y...')
+    y = torch.load(f'{dataset}QM_input/y{period}{num}.pt', weights_only=False)
+else:
+    print("processing y data...")
+    y = process_data(dataset, period, valid_coords, num, device)
+    torch.save(y, f'{dataset}QM_input/y{period}{num}.pt')
 
 
 elev_tensor = torch.tensor(elev_data).to(x.dtype).to(device)
@@ -66,14 +77,17 @@ num_series = x.shape[1]
 
 ## Choose model
 # model = QuantileMappingModel_Poly2(num_series=num_series, degree=3, hidden_dim=64).to(device)
-model = QuantileMappingModel(num_series=num_series, hidden_dim=64).to(device)
+if model_type == 'SST':
+    model = QuantileMappingModel(num_series=num_series, hidden_dim=64).to(device)
+elif model_type == 'Poly2':
+    model = QuantileMappingModel_Poly2(num_series=num_series, degree=3, hidden_dim=64).to(device)
 
 if train == 1:
     optimizer = optim.Adam(model.parameters(), lr=0.01)
-    balance_loss = 0.1  # Adjust this weight to balance between distributional and rainy day losses
+    balance_loss = 0.01  # Adjust this weight to balance between distributional and rainy day losses
 
     # Training loop
-    num_epochs = 200
+    num_epochs = 2000
     for epoch in range(num_epochs):
         model.train()
 
@@ -94,10 +108,10 @@ if train == 1:
         if epoch % 50 == 0:
             print(f'Epoch {epoch}, Loss: {loss.item():.4f}')
 
-    torch.save(model.state_dict(), f'QM_model_{num}{train_period}_{noise_type}.pth')
+    torch.save(model.state_dict(), f'QM_{model_type}_{num}{train_period}_{noise_type}.pth')
 
 else:
-    model.load_state_dict(torch.load(f'QM_model_{num}{train_period}_{noise_type}.pth', weights_only=True))
+    model.load_state_dict(torch.load(f'QM_{model_type}_{num}{train_period}_{noise_type}.pth', weights_only=True))
     model.eval()
 
 

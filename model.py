@@ -23,10 +23,22 @@ class QuantileMappingModel(nn.Module):
         self.transform_generator = nn.Sequential(
             nn.Linear(1, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(0.2),  # Add dropout for regularization
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 3)  # Output: [scale, shift, threshold]
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 3)  # Output: [scale1, scale2, shift, threshold]
         )
+
+        # self.transform_generator = nn.Sequential(
+        #     nn.Linear(1, hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_dim, hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_dim, 4)  # Output: [scale, shift, threshold]
+        # )
 
     def normalize_elevation(self, elevation):
         mean = torch.mean(elevation)
@@ -42,12 +54,16 @@ class QuantileMappingModel(nn.Module):
 
         # Generate transformation parameters
         params = self.transform_generator(normalized_elevation)
-        scale = torch.exp(params[:, 0]).unsqueeze(0)  # Ensure positive scaling
+        scale1 = torch.exp(params[:, 0]).unsqueeze(0)  # Ensure positive scaling
+        # scale2 = torch.exp(params[:, 1]).unsqueeze(0)  # Ensure positive scaling
         shift = params[:, 1].unsqueeze(0)
         threshold = torch.sigmoid(params[:, 2]).unsqueeze(0)*0.1 # Between 0 and 1
 
         # Apply transformation
-        transformed_x = x * scale + shift
+        # transformed_x = (x * scale1) + ((x**2) * scale2) + shift
+        transformed_x = (x * scale1) + shift
+        torch.save(scale1, 'scale1.pt')
+        torch.save(shift, 'shift.pt')
 
         # Apply threshold-based zero handling
         zero_mask = x <= threshold

@@ -13,7 +13,7 @@ def convert_lon_to_neg180(lons):
 
 
 # Step 1: Extract lat/lon from the precipitation NetCDF file and convert longitude
-precip_nc_file = '/data/kas7897/Livneh/upscale_1by4_bci/prec_1980.nc'
+precip_nc_file = '/data/kas7897/Livneh/upscale_1by4/prec_1980.nc'
 with nc.Dataset(precip_nc_file, 'r') as precip_ds:
     lats = precip_ds.variables['lat'][:]
     lons = precip_ds.variables['lon'][:]

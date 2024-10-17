@@ -20,10 +20,10 @@ def valid_lat_lon(ds):
     return valid_coords
 
 
-### To test files
-
+# ## To test files
+#
 # ds_B = xr.open_dataset(f"/data/kas7897/Livneh/prec.1980.nc")
-# ds_A = xr.open_dataset(f"/data/kas7897/Livneh/upscale_1by4_bci_Wnoisy001d/prec_1980.nc")
+# ds_A = xr.open_dataset(f"/data/kas7897/Livneh/upscale_1by4_Wnoisy001d_bci/prec_1980.nc")
 #
 # valid_coords = valid_lat_lon(ds_B)
 # #
@@ -31,7 +31,7 @@ def valid_lat_lon(ds):
 # #
 # prec_B = ds_B['prec'].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'), lon=xr.DataArray(valid_coords[:, 1], dims='points'), method='nearest').values
 # prec_A = ds_A['prec'].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'), lon=xr.DataArray(valid_coords[:, 1], dims='points'), method='nearest').values
-
+#
 # # Finding num of crd with all zeros
 # print(np.sum(np.all(prec_B == 0, axis=0)))
 # print(np.sum(np.all(prec_A == 0, axis=0)))
