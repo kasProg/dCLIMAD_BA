@@ -27,7 +27,7 @@ noise_type = 'upscale_1by4_Wnoisy1_bci'
 # noise_type = 'bci_Wnoisy001d'
 train_period = [1980, 1990]
 test_period = [1980, 1990]
-train = 0#training = 1; else test
+train = 0 #training = 1; else test
 
 model_type = 'SST' #[SST/model, Poly2]
 degree = 3 # only if model_type = Poly

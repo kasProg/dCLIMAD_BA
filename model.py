@@ -62,8 +62,8 @@ class QuantileMappingModel(nn.Module):
         # Apply transformation
         # transformed_x = (x * scale1) + ((x**2) * scale2) + shift
         transformed_x = (x * scale1) + shift
-        torch.save(scale1, 'scale1.pt')
-        torch.save(shift, 'shift.pt')
+        # torch.save(scale1, 'scale1.pt')
+        # torch.save(shift, 'shift.pt')
 
         # Apply threshold-based zero handling
         zero_mask = x <= threshold
