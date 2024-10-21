@@ -55,7 +55,7 @@ def interpolate_time_slice(slice_data, lat_A, lon_A, lat_B, lon_B):
 
 ### Interpolating GFDL-ESM4 to Livneh crds
 
-for year in range(1980,1983):
+for year in range(1983,1996):
     prcp_ds = xr.open_dataset(f"/data/kas7897/GFDL-ESM4/pr_day_GFDL-ESM4_historical_r1i1p1f1_gr1_{year}_v1.1.nc")
     ds_B = xr.open_dataset(f"/data/kas7897/Livneh/prec.{year}.nc")
 

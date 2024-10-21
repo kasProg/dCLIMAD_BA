@@ -44,10 +44,10 @@ def compare_distributions(transformed_x, x, y):
 
     for i in range(num_series):
         # Calculate Wasserstein distance between transformed_x and y
-        dist_transformed = wasserstein_distance(transformed_x[:,i], y[:,i].cpu().numpy())
+        dist_transformed = wasserstein_distance(transformed_x[:,i], y[:,i])
 
         # Calculate Wasserstein distance between x and y
-        dist_original = wasserstein_distance(x[:, i].cpu().numpy(), y[:,i].cpu().numpy())
+        dist_original = wasserstein_distance(x[:, i], y[:,i])
 
         # Calculate improvement ratio
         improvement_ratio = (dist_original - dist_transformed) / dist_original

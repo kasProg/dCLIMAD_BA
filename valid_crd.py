@@ -20,10 +20,11 @@ def valid_lat_lon(ds):
     return valid_coords
 
 
-# ## To test files
+## To test files
 #
 # ds_B = xr.open_dataset(f"/data/kas7897/Livneh/prec.1980.nc")
-# ds_A = xr.open_dataset(f"/data/kas7897/Livneh/upscale_1by4_Wnoisy001d_bci/prec_1980.nc")
+# ds_A = xr.open_dataset(f"/data/kas7897/Livneh/upscale_1by4_LOGnoisy001d_bci/prec_1980.nc")
+# # ds_A = xr.open_dataset("/data/kas7897/GFDL-ESM4/livneh_bci/prec.1980.nc")
 #
 # valid_coords = valid_lat_lon(ds_B)
 # #
@@ -43,4 +44,4 @@ def valid_lat_lon(ds):
 # plt.hist(prec_B[:,400], bins=30, alpha=0.6, label="Original", color='orange')
 # plt.title("Original Gaussian and Target Skewed Distributions")
 # plt.legend()
-# plt.show()
+plt.show()

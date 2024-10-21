@@ -6,8 +6,10 @@ from scipy.interpolate import griddata
 ### This code adds noise to the coarsened data
 
 noise_factor = 1
+
+
 def generate_elevation_based_noise(elevation, noise_type='red', noise_factor=0.1):
-    if noise_type not in ['red', 'white', 'mixed']:
+    if noise_type not in ['red', 'white', 'mixed', 'log']:
         raise ValueError("Invalid noise_type. Choose from 'red', 'white', or 'mixed'.")
 
     # Generate random normal noise
@@ -24,6 +26,9 @@ def generate_elevation_based_noise(elevation, noise_type='red', noise_factor=0.1
     elif noise_type == 'mixed':
         # Combination of independent additive and multiplicative noise
         scaled_noise = (noise_multiplicative * elevation * noise_factor) + noise_additive + (elevation*noise_factor)
+    elif noise_type == 'log':
+        # base = 2
+        scaled_noise = noise_multiplicative * (np.exp(elevation * noise_factor))
 
     return scaled_noise
 
@@ -48,7 +53,7 @@ for year in range(1980, 2008):
     # Broadcast elevation to match prcp dimensions
     elevation_broadcasted = elevation_ds.elevation.broadcast_like(prcp_ds.prec)
     # Generate noise
-    noise = generate_elevation_based_noise(elevation_broadcasted, noise_type='white', noise_factor=noise_factor)
+    noise = generate_elevation_based_noise(elevation_broadcasted, noise_type='red', noise_factor=noise_factor)
 
     # Create a mask for rainy days (where precipitation > 0)
     rainy_days_mask = prcp_ds.prec > 0
@@ -83,7 +88,6 @@ for year in range(1980, 2008):
 
     # Perform interpolation
     for t in range(len(time)):
-        print(t)
         prcp_B[t] = interpolate_time_slice(prcp_A[t], lat_A, lon_A, lat_B, lon_B)
 
     ds_C = xr.Dataset(
@@ -102,7 +106,7 @@ for year in range(1980, 2008):
     ds_C['prec'] = ds_C['prec'].where(ds_B.prec == ds_B.prec, np.nan)
 
     # Save the new dataset as a NetCDF file
-    ds_C.to_netcdf(f'/data/kas7897/Livneh/upscale_1by4_Wnoisy1_bci/prec_{year}.nc')
+    ds_C.to_netcdf(f'/data/kas7897/Livneh/upscale_1by4_Rnoisy1_bci/prec_{year}.nc')
     # noisy_prcp_ds.to_netcdf(f'/data/kas7897/Livneh/noisy_new/prec_{year}.nc')
     print(year)
 

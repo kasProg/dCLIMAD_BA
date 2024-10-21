@@ -29,7 +29,7 @@ class QuantileMappingModel(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 3)  # Output: [scale1, scale2, shift, threshold]
+            nn.Linear(hidden_dim, 4)  # Output: [scale1, scale2, shift, threshold]
         )
 
         # self.transform_generator = nn.Sequential(
@@ -55,13 +55,14 @@ class QuantileMappingModel(nn.Module):
         # Generate transformation parameters
         params = self.transform_generator(normalized_elevation)
         scale1 = torch.exp(params[:, 0]).unsqueeze(0)  # Ensure positive scaling
+        # scale1 = params[:, 0].unsqueeze(0)  # Ensure positive scaling
         # scale2 = torch.exp(params[:, 1]).unsqueeze(0)  # Ensure positive scaling
         shift = params[:, 1].unsqueeze(0)
         threshold = torch.sigmoid(params[:, 2]).unsqueeze(0)*0.1 # Between 0 and 1
 
         # Apply transformation
         # transformed_x = (x * scale1) + ((x**2) * scale2) + shift
-        transformed_x = (x * scale1) + shift
+        transformed_x = x * scale1 + shift
         # torch.save(scale1, 'scale1.pt')
         # torch.save(shift, 'shift.pt')
 
@@ -122,13 +123,14 @@ class QuantileMappingModel_Poly2(nn.Module):
         transformed_rainy = torch.sum(coeffs.unsqueeze(0) * x_powers, dim=-1)
 
         # Apply transformation only to rainy days, keep original values for non-rainy days
-        transformed_x = torch.where(rainy_mask, transformed_rainy, x)
+        transformed_x = torch.sum(coeffs.unsqueeze(0) * x_powers, dim=-1)
+        # transformed_x = torch.where(rainy_mask, transformed_rainy, x)
 
         # Ensure non-negative values using ReLU instead of clamp
         transformed_x = torch.relu(transformed_x)
 
         # # Multiply coefficients with x_powers and sum along the last dimension
-        # transformed_x = torch.sum(coeffs.unsqueeze(0) * x_powers, dim=-1)
+        #
         # # transformed_x shape: (Len(time series), num_series)
         #
         # # Ensure non-negative values
