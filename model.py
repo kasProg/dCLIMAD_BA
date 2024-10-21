@@ -123,8 +123,8 @@ class QuantileMappingModel_Poly2(nn.Module):
         transformed_rainy = torch.sum(coeffs.unsqueeze(0) * x_powers, dim=-1)
 
         # Apply transformation only to rainy days, keep original values for non-rainy days
-        transformed_x = torch.sum(coeffs.unsqueeze(0) * x_powers, dim=-1)
-        # transformed_x = torch.where(rainy_mask, transformed_rainy, x)
+        # transformed_x = torch.sum(coeffs.unsqueeze(0) * x_powers, dim=-1)
+        transformed_x = torch.where(rainy_mask, transformed_rainy, x)
 
         # Ensure non-negative values using ReLU instead of clamp
         transformed_x = torch.relu(transformed_x)

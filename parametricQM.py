@@ -18,16 +18,16 @@ from sklearn.preprocessing import StandardScaler
 ###-----The code is currently accustomed to Livneh Data format ----###
 
 torch.manual_seed(42)
-device = torch.device('cuda:5')
+device = torch.device('cuda:7')
 
 dataset = '/data/kas7897/Livneh/'
-clim_model = '/data/kas7897/Livneh/'
+clim_model = '/data/kas7897/GFDL-ESM4/'
 
-clim = 'livneh'
+clim = 'GFDL-ESM4'
 ref = 'livneh'
 
 ##if running synthetic cas
-noise_type = 'upscale_1by4_Rnoisy1_bci'
+noise_type = 'livneh_bci'
 # noise_type = 'bci_Wnoisy001d'
 train_period = [1980, 1990]
 test_period = [1991, 1995]
@@ -37,7 +37,7 @@ model_type = 'SST' #[SST/model, Poly2]
 degree = 2 # only if model_type = Poly
 
 ##number of coordinates; if all then set to 'all'
-num = 2000
+num = 'all'
 
 #extracting valid lat-lon pairs with non-nan prcp
 ds_sample = xr.open_dataset(f"{dataset}prec.1980.nc")
@@ -45,9 +45,14 @@ valid_coords = valid_crd.valid_lat_lon(ds_sample)
 
 #processing elevation data
 elev = xr.open_dataset('/data/kas7897/diffDownscale/elev_Livneh.nc')
-elev_data = elev['elevation'].sel(lat=xr.DataArray(valid_coords[:num, 0], dims='points'),
-                             lon=xr.DataArray(valid_coords[:num, 1], dims='points'),
-                             method='nearest').values
+if num == 'all':
+    elev_data = elev['elevation'].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
+                                      lon=xr.DataArray(valid_coords[:, 1], dims='points'),
+                                      method='nearest').values
+else:
+    elev_data = elev['elevation'].sel(lat=xr.DataArray(valid_coords[:num, 0], dims='points'),
+                                 lon=xr.DataArray(valid_coords[:num, 1], dims='points'),
+                                 method='nearest').values
 
 pathx = clim_model + noise_type
 
@@ -59,7 +64,7 @@ else:
 
 if os.path.exists(f'{clim_model}QM_input/x{period}{num}_{noise_type}.pt'):
     print('loading x...')
-    x = torch.load(f'{clim_model}QM_input/x{period}{num}_{noise_type}.pt', weights_only=False)
+    x = torch.load(f'{clim_model}QM_input/x{period}{num}_{noise_type}.pt', weights_only=False).to(device)
 else:
     print("processing x data...")
     x = process_data(pathx, period, valid_coords, num, device)
@@ -67,7 +72,7 @@ else:
 
 if os.path.exists(f'{dataset}QM_input/y{period}{num}.pt'):
     print('loading y...')
-    y = torch.load(f'{dataset}QM_input/y{period}{num}.pt', weights_only=False)
+    y = torch.load(f'{dataset}QM_input/y{period}{num}.pt', weights_only=False).to(device)
 else:
     print("processing y data...")
     y = process_data(dataset, period, valid_coords, num, device)
@@ -120,7 +125,7 @@ if train == 1:
     plt.show()
 
 else:
-    model.load_state_dict(torch.load(f'models/{clim}-{ref}/QM_{model_type}_{num}{train_period}_{noise_type}.pth', weights_only=True))
+    model.load_state_dict(torch.load(f'models/{clim}-{ref}/QM_{model_type}_{num}{train_period}_{noise_type}.pth', weights_only=True).to(device))
     model.eval()
 
 
