@@ -11,8 +11,8 @@ import pickle
 import valid_crd
 import tqdm
 from model import QuantileMappingModel, QuantileMappingModel_Poly2
-from loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse
-from data import process_data
+from loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss
+from data import process_data, getStatDic
 from sklearn.preprocessing import StandardScaler
 
 ###-----The code is currently accustomed to Livneh Data format ----###
@@ -21,27 +21,30 @@ torch.manual_seed(42)
 device = torch.device('cuda:7')
 
 dataset = '/data/kas7897/Livneh/'
-clim_model = '/data/kas7897/GFDL-ESM4/'
+clim_model = '/data/kas7897/Livneh/'
 
-clim = 'GFDL-ESM4'
+clim = 'livneh'
 ref = 'livneh'
 
 ##if running synthetic cas
-noise_type = 'livneh_bci'
+noise_type = 'R4noisyStatic001d'
+# noise_type = 'livneh_bci'
 # noise_type = 'bci_Wnoisy001d'
 train_period = [1980, 1990]
 test_period = [1991, 1995]
 train = 1 # training = 1; else test
+inputs = ['noisy_prcp', 'elev']
 
 model_type = 'SST' #[SST/model, Poly2]
-degree = 2 # only if model_type = Poly
+degree = 1 # only if model_type = Poly
 
 ##number of coordinates; if all then set to 'all'
-num = 'all'
+num = 2000
 
 #extracting valid lat-lon pairs with non-nan prcp
 ds_sample = xr.open_dataset(f"{dataset}prec.1980.nc")
 valid_coords = valid_crd.valid_lat_lon(ds_sample)
+
 
 #processing elevation data
 elev = xr.open_dataset('/data/kas7897/diffDownscale/elev_Livneh.nc')
@@ -61,13 +64,16 @@ if train==1:
 else:
     period = test_period
 
+# wind = process_data(f'{dataset}/wind', period, valid_coords, num, device, var='wind')
+# torch.save(wind, f'{dataset}/wind/QM_input/wind{period}{num}.pt')
+# wind = torch.load(f'{dataset}/wind/QM_input/wind{period}{num}.pt', weights_only=False).to(device)
 
 if os.path.exists(f'{clim_model}QM_input/x{period}{num}_{noise_type}.pt'):
     print('loading x...')
     x = torch.load(f'{clim_model}QM_input/x{period}{num}_{noise_type}.pt', weights_only=False).to(device)
 else:
     print("processing x data...")
-    x = process_data(pathx, period, valid_coords, num, device)
+    x = process_data(pathx, period, valid_coords, num, device, var='prec')
     torch.save(x, f'{clim_model}QM_input/x{period}{num}_{noise_type}.pt')
 
 if os.path.exists(f'{dataset}QM_input/y{period}{num}.pt'):
@@ -75,12 +81,33 @@ if os.path.exists(f'{dataset}QM_input/y{period}{num}.pt'):
     y = torch.load(f'{dataset}QM_input/y{period}{num}.pt', weights_only=False).to(device)
 else:
     print("processing y data...")
-    y = process_data(dataset, period, valid_coords, num, device)
+    y = process_data(dataset, period, valid_coords, num, device, var='prec')
     torch.save(y, f'{dataset}QM_input/y{period}{num}.pt')
 
 
 elev_tensor = torch.tensor(elev_data).to(x.dtype).to(device)
+# wind_tensor = torch.tensor(wind).to(x.dtype).to(device)
+
+
+# for inp in inputs:
+# elev_in_tensor = torch.broadcast_to(elev_tensor, x.shape).unsqueeze(2)
+# x_in = x.unsqueeze(2)
+#
+# # wind_tensor = wind_tensor.unsqueeze(2)
+#
+# input_tensor = torch.cat((elev_tensor, x_in), dim=2)
+# statDict = getStatDic(flow_regime = 1, attrLst=None, attrdata=None, seriesLst=None, seriesdata=None)
+
+
+
+
 torch.set_default_dtype(x.dtype)
+
+
+
+
+
+
 
 num_series = x.shape[1]
 
@@ -95,19 +122,22 @@ if train == 1:
     balance_loss = 0.01  # Adjust this weight to balance between distributional and rainy day losses
 
     # Training loop
-    num_epochs = 200
+    num_epochs = 1000
     loss_list = []
     for epoch in range(num_epochs):
         model.train()
 
         # Forward pass
         transformed_x = model(x, elev_tensor)
+        # transformed_x = model(x, input_tensor)
 
         # Compute the loss
         dist_loss = distributional_loss_interpolated(transformed_x, y, device=device, num_quantiles=100)
+        kl_loss = kl_divergence_loss(transformed_x, y, num_bins=100)
         rainy_loss = rainy_day_loss(transformed_x, y)
 
-        loss = dist_loss + balance_loss*rainy_loss
+        # loss = dist_loss + balance_loss*rainy_loss
+        loss = dist_loss + kl_loss + balance_loss*rainy_loss
 
         # Backward pass and optimization
         optimizer.zero_grad()
@@ -117,6 +147,7 @@ if train == 1:
         loss_list.append(loss.item())
         if epoch % 10 == 0:
             print(f'Epoch {epoch}, Loss: {loss.item():.4f}')
+            # print(f'Epoch {epoch}, Loss: {dist_loss.item():.4f}')
 
     torch.save(model.state_dict(), f'models/{clim}-{ref}/QM_{model_type}_{num}{train_period}_{noise_type}.pth')
 
@@ -125,7 +156,7 @@ if train == 1:
     plt.show()
 
 else:
-    model.load_state_dict(torch.load(f'models/{clim}-{ref}/QM_{model_type}_{num}{train_period}_{noise_type}.pth', weights_only=True).to(device))
+    model.load_state_dict(torch.load(f'models/{clim}-{ref}/QM_{model_type}_{num}{train_period}_{noise_type}.pth', weights_only=True))
     model.eval()
 
 
@@ -156,6 +187,76 @@ plt.title("Transformed x vs Target y")
 plt.legend()
 
 plt.show()
+
+
+# best_ind, best_improv = min(enumerate(individual_improvements), key=lambda x: x[1])
+
+# # Step 6: Plotting the original and transformed distributions
+# plt.figure(figsize=(12, 6))
+# # plt.suptitle(f'WS Distance Improvement:{best_improv}')
+# plt.subplot(1, 2, 1)
+# plt.hist(x[:, 500], bins=30, alpha=0.6, label="Noisy")
+# plt.hist(y[:, 500], bins=30, alpha=0.6, label="Target Y", color='orange')
+# plt.title("Noisy x and Target Distributions")
+# plt.legend()
+#
+# plt.subplot(1, 2, 2)
+# plt.hist(transformed_x[:, 500], bins=30, alpha=0.6, label="Transformed x", color='green')
+# plt.hist(y[:, 500], bins=30, alpha=0.6, label="Target y", color='orange')
+# plt.title("Transformed x vs Target y")
+# plt.legend()
+#
+# plt.show()
+#
+# # Step 6: Plotting the original and transformed distributions
+# plt.figure(figsize=(12, 6))
+# # plt.suptitle(f'WS Distance Improvement:{best_improv}')
+# plt.subplot(1, 2, 1)
+# plt.hist(x[:, 100], bins=30, alpha=0.6, label="Noisy")
+# plt.hist(y[:, 100], bins=30, alpha=0.6, label="Target Y", color='orange')
+# plt.title("Noisy x and Target Distributions")
+# plt.legend()
+#
+# plt.subplot(1, 2, 2)
+# plt.hist(transformed_x[:, 500], bins=30, alpha=0.6, label="Transformed x", color='green')
+# plt.hist(y[:, 100], bins=30, alpha=0.6, label="Target y", color='orange')
+# plt.title("Transformed x vs Target y")
+# plt.legend()
+#
+# plt.show()
+#
+# # Step 6: Plotting the original and transformed distributions
+# plt.figure(figsize=(12, 6))
+# # plt.suptitle(f'WS Distance Improvement:{best_improv}')
+# plt.subplot(1, 2, 1)
+# plt.hist(x[:, 1000], bins=30, alpha=0.6, label="Noisy")
+# plt.hist(y[:, 1000], bins=30, alpha=0.6, label="Target Y", color='orange')
+# plt.title("Noisy x and Target Distributions")
+# plt.legend()
+#
+# plt.subplot(1, 2, 2)
+# plt.hist(transformed_x[:, 1000], bins=30, alpha=0.6, label="Transformed x", color='green')
+# plt.hist(y[:,1000], bins=30, alpha=0.6, label="Target y", color='orange')
+# plt.title("Transformed x vs Target y")
+# plt.legend()
+#
+# plt.show()
+#
+# # Step 6: Plotting the original and transformed distributions
+# plt.figure(figsize=(12, 6))
+# plt.subplot(1, 2, 1)
+# plt.hist(x[:, 1500], bins=30, alpha=0.6, label="Noisy")
+# plt.hist(y[:, 1500], bins=30, alpha=0.6, label="Target Y", color='orange')
+# plt.title("Noisy x and Target Distributions")
+# plt.legend()
+#
+# plt.subplot(1, 2, 2)
+# plt.hist(transformed_x[:, 1500], bins=30, alpha=0.6, label="Transformed x", color='green')
+# plt.hist(y[:, 1500], bins=30, alpha=0.6, label="Target y", color='orange')
+# plt.title("Transformed x vs Target y")
+# plt.legend()
+#
+# plt.show()
 
 # Print skewness to verify positive skew
 # print("Skewness of original x: ", skew(x.cpu().detach().numpy()))

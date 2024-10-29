@@ -29,7 +29,7 @@ class QuantileMappingModel(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 4)  # Output: [scale1, scale2, shift, threshold]
+            nn.Linear(hidden_dim, 3)  # Output: [scale1, scale2, shift, threshold]
         )
 
         # self.transform_generator = nn.Sequential(
@@ -55,14 +55,16 @@ class QuantileMappingModel(nn.Module):
         # Generate transformation parameters
         params = self.transform_generator(normalized_elevation)
         scale1 = torch.exp(params[:, 0]).unsqueeze(0)  # Ensure positive scaling
-        # scale1 = params[:, 0].unsqueeze(0)  # Ensure positive scaling
-        # scale2 = torch.exp(params[:, 1]).unsqueeze(0)  # Ensure positive scaling
-        shift = params[:, 1].unsqueeze(0)
+        shift1 = params[:, 1].unsqueeze(0)
         threshold = torch.sigmoid(params[:, 2]).unsqueeze(0)*0.1 # Between 0 and 1
 
+        # scale2 = torch.exp(params[:, 3]).unsqueeze(0)  # Ensure positive scaling
+        # shift2 = params[:, 4].unsqueeze(0)
+
         # Apply transformation
-        # transformed_x = (x * scale1) + ((x**2) * scale2) + shift
-        transformed_x = x * scale1 + shift
+        transformed_x = x * scale1 + shift1
+        # transformed_x = transformed_x * scale2 + shift2
+        # transformed_x = transformed_x * scale3 + shift3
         # torch.save(scale1, 'scale1.pt')
         # torch.save(shift, 'shift.pt')
 
@@ -73,6 +75,8 @@ class QuantileMappingModel(nn.Module):
         # Ensure non-negative values using softplus
         transformed_x = torch.relu(transformed_x)
 
+        # e = transformed_x - x
+        # torch.save(e, 'e.pt')
         return transformed_x
 
 class QuantileMappingModel_Poly2(nn.Module):

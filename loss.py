@@ -1,6 +1,7 @@
 import torch
 from scipy.stats import wasserstein_distance
 import numpy as np
+import torch.nn.functional as F
 
 def interpolate_quantiles(data, device, num_quantiles=200):
     """
@@ -25,16 +26,33 @@ def distributional_loss_interpolated(transformed_x, target_y, device, num_quanti
     loss = torch.mean((quantiles_x - quantiles_y) ** 2)
     return loss
 
-def rainy_day_loss(transformed_x, target_y):
+# def rainy_day_loss(transformed_x, target_y):
+#     """
+#     Calculates the loss that targets preserving the number of rainy days in the transformed data.
+#     """
+#     # Calculate the number of rainy days in transformed and target datasets
+#     rainy_days_transformed = (transformed_x == 0).sum(dim=0)
+#     rainy_days_target = (target_y == 0).sum(dim=0)
+#
+#     # Calculate the mean absolute difference in the number of rainy days across all series
+#     rainy_days_loss = torch.mean(torch.abs(rainy_days_transformed - rainy_days_target).to(transformed_x.dtype))
+#     return rainy_days_loss
+
+
+def rainy_day_loss(transformed_x, target_y, threshold=0.1):
     """
-    Calculates the loss that targets preserving the number of rainy days in the transformed data.
+    Calculates a differentiable loss that targets preserving the number of rainy days in the transformed data.
     """
-    # Calculate the number of rainy days in transformed and target datasets
-    rainy_days_transformed = (transformed_x == 0).sum(dim=0)
-    rainy_days_target = (target_y == 0).sum(dim=0)
+    # Use a sigmoid approximation for the "rainy days" indicator
+    sigmoid_transformed_x = torch.sigmoid(-transformed_x / threshold)
+    sigmoid_target_y = torch.sigmoid(-target_y / threshold)
+
+    # Sum over the approximated rainy days in both transformed and target data
+    rainy_days_transformed = sigmoid_transformed_x.sum(dim=0)
+    rainy_days_target = sigmoid_target_y.sum(dim=0)
 
     # Calculate the mean absolute difference in the number of rainy days across all series
-    rainy_days_loss = torch.mean(torch.abs(rainy_days_transformed - rainy_days_target).to(transformed_x.dtype))
+    rainy_days_loss = torch.mean(torch.abs(rainy_days_transformed - rainy_days_target))
     return rainy_days_loss
 
 def compare_distributions(transformed_x, x, y):
@@ -61,3 +79,31 @@ def compare_distributions(transformed_x, x, y):
 
 def rmse(actual, predicted):
     return np.sqrt(np.mean((actual - predicted) ** 2, axis=0))
+
+def kl_divergence_loss(transformed_x, target_y, num_bins=50):
+    # Initialize histograms for transformed and target data
+    # transformed_hist = torch.stack(
+    #     [torch.histc(transformed_x[:, i], bins=num_bins, min=0, max=8) for i in range(transformed_x.shape[1])])
+    # target_hist = torch.stack(
+    #     [torch.histc(target_y[:, i], bins=num_bins, min=0, max=8) for i in range(target_y.shape[1])])
+    #
+    # # Normalize to get probability distributions
+    # transformed_prob = transformed_hist / (transformed_hist.sum(dim=1, keepdim=True) + 1e-10)
+    # target_prob = target_hist / (target_hist.sum(dim=1, keepdim=True) + 1e-10)
+    #
+    #
+    # # Add a small value to avoid log(0)
+    # epsilon = 1e-10
+    # transformed_prob = transformed_prob + epsilon
+    # target_prob = target_prob + epsilon
+
+    prob_log_x = F.log_softmax(transformed_x, dim=1)
+    prob_y = F.softmax(target_y, dim=1)
+
+    # Calculate KL divergence for each coordinate and take the mean
+    kl_loss = F.kl_div(prob_log_x, prob_y, reduction='batchmean')
+
+    # Return the average KL divergence across all coordinates
+    return kl_loss
+
+

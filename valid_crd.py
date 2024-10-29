@@ -23,9 +23,9 @@ def valid_lat_lon(ds):
 ## To test files
 #
 # ds_B = xr.open_dataset(f"/data/kas7897/Livneh/prec.1980.nc")
-# ds_A = xr.open_dataset(f"/data/kas7897/Livneh/upscale_1by4_LOGnoisy001d_bci/prec_1980.nc")
-# # ds_A = xr.open_dataset("/data/kas7897/GFDL-ESM4/livneh_bci/prec.1980.nc")
-#
+# ds_A = xr.open_dataset(f"/data/kas7897/Livneh/upscale_1by4_bci/prec_1980.nc")
+# ds_A = xr.open_dataset("/data/shared_data/NLDAS/NLDAS_FORA0125_H002/NLDAS_FORA0125_H.A19790101.0000.002.grb.SUB.nc4")
+# #
 # valid_coords = valid_lat_lon(ds_B)
 # #
 # # ## calling precpitation values
