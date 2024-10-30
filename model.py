@@ -55,9 +55,9 @@ class QuantileMappingModel(nn.Module):
         # Generate transformation parameters
         # params = self.transform_generator(normalized_elevation)
         params = self.transform_generator(input_tensor)
-        scale1 = torch.exp(params[:, 0]).unsqueeze(0)  # Ensure positive scaling
-        shift1 = params[:, 1].unsqueeze(0)
-        threshold = torch.sigmoid(params[:, 2]).unsqueeze(0)*0.1 # Between 0 and 1
+        scale1 = torch.exp(params[:, :, 0])  # Ensure positive scaling
+        shift1 = params[:, :, 1]
+        threshold = torch.sigmoid(params[:, :, 2])*0.1 # Between 0 and 1
 
         # scale2 = torch.exp(params[:, 3]).unsqueeze(0)  # Ensure positive scaling
         # shift2 = params[:, 4].unsqueeze(0)

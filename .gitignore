@@ -5,3 +5,4 @@ fno1d_model_weights.pth
 staresdm.py
 fno.py
 test.py
+noise2.py

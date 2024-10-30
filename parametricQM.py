@@ -23,18 +23,18 @@ torch.manual_seed(42)
 device = torch.device('cuda:6')
 
 dataset = '/data/kas7897/Livneh/'
-clim_model = '/data/kas7897/Livneh/'
+clim_model = '/data/kas7897/GFDL-ESM4/'
 
-clim = 'livneh'
+clim = 'GFDL-ESM4'
 ref = 'livneh'
 
-##if running synthetic cas
-noise_type = 'R4noisyStatic001d'
+##if running synthetic case
+noise_type = 'livneh_bci'
 # noise_type = 'livneh_bci'
 # noise_type = 'bci_Wnoisy001d'
 train_period = [1980, 1990]
 test_period = [1991, 1995]
-train = 1 # training = 1; else test
+train = 0 # training = 1; else test
 seriesLst = ['noisy_prcp']
 attrLst = ['elev']
 
@@ -125,6 +125,14 @@ input_norm_tensor = torch.cat((series_norm, attr_norm_tensor), dim=2)
 
 torch.set_default_dtype(x.dtype)
 
+#for batches
+x = x.T
+y = y.T
+input_norm_tensor = input_norm_tensor.permute(1, 0, 2)
+dataset = TensorDataset(input_norm_tensor, x, y)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+
 num_series = x.shape[1]
 nx = x_in.shape[-1] + attr_tensor.shape[-1]
 ny = 3 # 3-params
@@ -140,32 +148,42 @@ if train == 1:
     balance_loss = 0.01  # Adjust this weight to balance between distributional and rainy day losses
 
     # Training loop
-    num_epochs = 1000
+    num_epochs = 100
     loss_list = []
     for epoch in range(num_epochs):
         model.train()
+        epoch_loss = 0
 
-        # Forward pass
-        # transformed_x = model(x, elev_tensor)
-        transformed_x = model(x, input_norm_tensor)
+        for batch_input_norm, batch_x, batch_y in dataloader:
+            # Move batch to device
+            batch_input_norm = batch_input_norm.to(device)
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
 
-        # Compute the loss
-        dist_loss = distributional_loss_interpolated(transformed_x, y, device=device, num_quantiles=100)
-        kl_loss = kl_divergence_loss(transformed_x, y, num_bins=100)
-        rainy_loss = rainy_day_loss(transformed_x, y)
+            # Forward pass
+            transformed_x = model(batch_x, batch_input_norm)
 
-        # loss = dist_loss + balance_loss*rainy_loss
-        loss = dist_loss + kl_loss + balance_loss*rainy_loss
+            # Compute the loss
+            dist_loss = distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=100)
+            kl_loss = kl_divergence_loss(transformed_x.T, batch_y.T, num_bins=100)
+            rainy_loss = rainy_day_loss(transformed_x.T, batch_y.T)
 
-        # Backward pass and optimization
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            loss = dist_loss + kl_loss + balance_loss * rainy_loss
 
-        loss_list.append(loss.item())
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+
+        # Average loss for the epoch
+        avg_epoch_loss = epoch_loss / len(dataloader)
+        loss_list.append(avg_epoch_loss)
+
         if epoch % 10 == 0:
-            print(f'Epoch {epoch}, Loss: {loss.item():.4f}')
-            # print(f'Epoch {epoch}, Loss: {dist_loss.item():.4f}')
+            print(f'Epoch {epoch}, Average Loss: {avg_epoch_loss:.4f}')
+
 
     torch.save(model.state_dict(), f'{save_path}/model.pth')
 
@@ -176,33 +194,52 @@ if train == 1:
 else:
     model.load_state_dict(torch.load(f'{save_path}/model.pth', weights_only=True))
     model.eval()
+    transformed_x = []
+    x = []
+    y = []
+    with torch.no_grad():
+        for batch in dataloader:
+            batch_input_norm, batch_x, batch_y = [b.to(device) for b in batch]
+
+            # Forward pass
+            predictions = model(batch_x, batch_input_norm)
+
+            # Store predictions
+            transformed_x.append(predictions.cpu())
+
+            y.append(batch_y.cpu())
+            x.append(batch_x.cpu())
 
 
-transformed_x = model(x, elev_tensor).cpu().detach().numpy()
-x = x.cpu().detach().numpy()
-y = y.cpu().detach().numpy()
-avg_improvement, individual_improvements = compare_distributions(transformed_x, x, y)
-print(f"Average distribution improvement: {avg_improvement:.4f}")
+    # # transformed_x = model(x, elev_tensor).cpu().detach().numpy()
+    # transformed_x = model(x, input_norm_tensor).cpu().detach().numpy()
+    # x = x.cpu().detach().numpy()
+    # y = y.cpu().detach().numpy()
+    transformed_x = torch.cat(transformed_x, dim=0).numpy().T
+    x = torch.cat(x, dim=0).numpy().T
+    y = torch.cat(y, dim=0).numpy().T
+    avg_improvement, individual_improvements = compare_distributions(transformed_x, x, y)
+    print(f"Average distribution improvement: {avg_improvement:.4f}")
 
-print(f"RMSE between Noise and Target: {np.median(rmse(x, y))}")
-print(f"RMSE between Corrected and Target: {np.median(rmse(transformed_x, y))}")
+    print(f"RMSE between Noise and Target: {np.median(rmse(x, y))}")
+    print(f"RMSE between Corrected and Target: {np.median(rmse(transformed_x, y))}")
 
-best_ind, best_improv = max(enumerate(individual_improvements), key=lambda x: x[1])
+    best_ind, best_improv = max(enumerate(individual_improvements), key=lambda x: x[1])
 
-# Step 6: Plotting the original and transformed distributions
-plt.figure(figsize=(12, 6))
-plt.suptitle(f'WS Distance Improvement:{best_improv}')
-plt.subplot(1, 2, 1)
-plt.hist(x[:, best_ind], bins=30, alpha=0.6, label="Noisy")
-plt.hist(y[:, best_ind], bins=30, alpha=0.6, label="Target Y", color='orange')
-plt.title("Noisy x and Target Distributions")
-plt.legend()
+    # Step 6: Plotting the original and transformed distributions
+    plt.figure(figsize=(12, 6))
+    plt.suptitle(f'WS Distance Improvement:{best_improv}')
+    plt.subplot(1, 2, 1)
+    plt.hist(x[:, best_ind], bins=30, alpha=0.6, label="Noisy")
+    plt.hist(y[:, best_ind], bins=30, alpha=0.6, label="Target Y", color='orange')
+    plt.title("Noisy x and Target Distributions")
+    plt.legend()
 
-plt.subplot(1, 2, 2)
-plt.hist(transformed_x[:, best_ind], bins=30, alpha=0.6, label="Transformed x", color='green')
-plt.hist(y[:, best_ind], bins=30, alpha=0.6, label="Target y", color='orange')
-plt.title("Transformed x vs Target y")
-plt.legend()
+    plt.subplot(1, 2, 2)
+    plt.hist(transformed_x[:, best_ind], bins=30, alpha=0.6, label="Transformed x", color='green')
+    plt.hist(y[:, best_ind], bins=30, alpha=0.6, label="Target y", color='orange')
+    plt.title("Transformed x vs Target y")
+    plt.legend()
 
 plt.show()
 

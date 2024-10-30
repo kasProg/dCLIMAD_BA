@@ -56,7 +56,7 @@ def rainy_day_loss(transformed_x, target_y, threshold=0.1):
     return rainy_days_loss
 
 def compare_distributions(transformed_x, x, y):
-    # Assuming transformed_x, x, and y are 2D tensors of shape (num_time_series, time_steps)
+    # Assuming transformed_x, x, and y are 2D tensors of shape (time_steps, num_time_series)
     num_series = transformed_x.shape[1]
     wasserstein_distances = []
 
