@@ -33,10 +33,11 @@ noise_type = 'livneh_bci'
 # noise_type = 'livneh_bci'
 # noise_type = 'bci_Wnoisy001d'
 train_period = [1980, 1990]
-test_period = [1991, 1995]
-train = 0 # training = 1; else test
-seriesLst = ['noisy_prcp']
+test_period = [1980, 1990]
+train = 1 # training = 1; else test
+seriesLst = ['noisy_prcp', 'wind']
 attrLst = ['elev']
+epochs = 500
 
 model_type = 'SST' #[SST/model, Poly2]
 degree = 1 # only if model_type = Poly
@@ -71,9 +72,6 @@ if train==1:
 else:
     period = test_period
 
-# wind = process_data(f'{dataset}/wind', period, valid_coords, num, device, var='wind')
-# torch.save(wind, f'{dataset}/wind/QM_input/wind{period}{num}.pt')
-# wind = torch.load(f'{dataset}/wind/QM_input/wind{period}{num}.pt', weights_only=False).to(device)
 
 if os.path.exists(f'{clim_model}QM_input/x{period}{num}_{noise_type}.pt'):
     print('loading x...')
@@ -91,20 +89,27 @@ else:
     y = process_data(dataset, period, valid_coords, num, device, var='prec')
     torch.save(y, f'{dataset}QM_input/y{period}{num}.pt')
 
-
+#addigng wind_data
+if os.path.exists(f'{dataset}/wind/QM_input/wind{period}{num}.pt'):
+    print('loading wind....')
+    wind = torch.load(f'{dataset}/wind/QM_input/wind{period}{num}.pt', weights_only=False).to(device)
+else:
+    print('processing wind...')
+    wind = process_data(f'{dataset}/wind', period, valid_coords, num, device, var='wind')
+    torch.save(wind, f'{dataset}/wind/QM_input/wind{period}{num}.pt')
+    wind = torch.tensor(wind)
 
 elev_tensor = torch.tensor(elev_data).to(x.dtype).to(device)
-# wind_tensor = torch.tensor(wind).to(x.dtype).to(device)
+wind_tensor = wind.to(x.dtype).to(device)
 attr_tensor = elev_tensor.unsqueeze(-1)
 
 # for inp in inputs:
 # elev_in_tensor = torch.broadcast_to(elev_tensor, x.shape).unsqueeze(-1)
 x_in = x.unsqueeze(-1)
-# wind_tensor = wind_tensor.unsqueeze(2)
+wind_tensor = wind_tensor.unsqueeze(-1)
+x_in = torch.cat((x_in, wind_tensor), dim=2)
 
-
-# input_tensor = torch.cat((elev_in_tensor, x_in), dim=2)
-if train ==1:
+if train == 1:
     statDict = getStatDic(flow_regime = 1, seriesLst = seriesLst, seriesdata = x_in, attrLst = attrLst, attrdata = attr_tensor)
     data.save_dict(statDict, f'{save_path}/statDict.json')
     # save statDict
@@ -112,14 +117,14 @@ else:
     statDict = data.load_dict(f'{save_path}/statDict.json')
     # load StatDict
 
-attr_norm =data.transNormbyDic(attr_tensor, attrLst, statDict, toNorm=True, flow_regime=1)
+attr_norm = data.transNormbyDic(attr_tensor, attrLst, statDict, toNorm=True, flow_regime=1)
 attr_norm[torch.isnan(attr_norm)] = 0.0
 series_norm = data.transNormbyDic(
     x_in, seriesLst, statDict, toNorm=True, flow_regime= 1
 )
 series_norm[torch.isnan(series_norm)] = 0.0
 
-attr_norm_tensor = torch.broadcast_to(attr_norm, series_norm.shape)
+attr_norm_tensor = attr_norm.unsqueeze(0).expand(series_norm.shape[0], -1, -1)
 input_norm_tensor = torch.cat((series_norm, attr_norm_tensor), dim=2)
 
 
@@ -148,7 +153,7 @@ if train == 1:
     balance_loss = 0.01  # Adjust this weight to balance between distributional and rainy day losses
 
     # Training loop
-    num_epochs = 100
+    num_epochs = epochs
     loss_list = []
     for epoch in range(num_epochs):
         model.train()
