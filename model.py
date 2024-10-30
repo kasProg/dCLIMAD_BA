@@ -15,13 +15,13 @@ from scipy.stats import wasserstein_distance
 from sklearn.preprocessing import StandardScaler
 
 class QuantileMappingModel(nn.Module):
-    def __init__(self, num_series=100, hidden_dim=64):
+    def __init__(self, nx=1, ny=3, num_series=100, hidden_dim=64):
         super(QuantileMappingModel, self).__init__()
         self.num_series = num_series
 
         # Neural network to generate transformation parameters
         self.transform_generator = nn.Sequential(
-            nn.Linear(1, hidden_dim),
+            nn.Linear(nx, hidden_dim),
             nn.ReLU(),
             nn.Dropout(0.2),  # Add dropout for regularization
             nn.Linear(hidden_dim, hidden_dim),
@@ -29,7 +29,7 @@ class QuantileMappingModel(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 3)  # Output: [scale1, scale2, shift, threshold]
+            nn.Linear(hidden_dim, ny)  # Output: [scale1, scale2, shift, threshold]
         )
 
         # self.transform_generator = nn.Sequential(
@@ -46,14 +46,15 @@ class QuantileMappingModel(nn.Module):
         normalized_elevation = (elevation - mean) / std_dev
         return normalized_elevation.unsqueeze(1)
 
-    def forward(self, x, elevation):
+    def forward(self, x, input_tensor):
         # x shape: (Len(time series), num_series)
         # elevation shape: (num_series,)
 
-        normalized_elevation = self.normalize_elevation(elevation)
+        # normalized_elevation = self.normalize_elevation(elevation)
 
         # Generate transformation parameters
-        params = self.transform_generator(normalized_elevation)
+        # params = self.transform_generator(normalized_elevation)
+        params = self.transform_generator(input_tensor)
         scale1 = torch.exp(params[:, 0]).unsqueeze(0)  # Ensure positive scaling
         shift1 = params[:, 1].unsqueeze(0)
         threshold = torch.sigmoid(params[:, 2]).unsqueeze(0)*0.1 # Between 0 and 1

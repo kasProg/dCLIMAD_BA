@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import torch
 import numpy as np
 import os
-
+import json
 
 def load_and_process_year(path, year, valid_coords, num, var):
 
@@ -54,43 +54,42 @@ def process_data(path, train_period, valid_coords, num, device, var):
 
     return torch.tensor(x).to(device)
 
-def calStat(x):
+
+def calStatgamma(x):
+    x = x.cpu().detach().numpy()
     a = x.flatten()
-    b = a[~np.isnan(a)]
-    p10 = np.percentile(b, 10).astype(float)
-    p90 = np.percentile(b, 90).astype(float)
-    mean = np.mean(b).astype(float)
-    std = np.std(b).astype(float)
+    b = a[~np.isnan(a)]  # kick out NaN
+    b = np.log10(torch.sqrt(b) + 0.1)  # transformation to change gamma characteristics
+    p10 = np.percentile(b, 0.1).float()
+    p90 = np.percentile(b, 0.9).float()
+    mean = np.mean(b).float()
+    std = np.std(b).float()
     if std < 0.001:
-        std = 1
+        std = np.tensor(1.0)
     return [p10, p90, mean, std]
 
-def calStatgamma(x):  # for daily streamflow and precipitation
-    a = x.flatten()
-    b = a[~np.isnan(a)]  # kick out Nan
-    b = np.log10(
-        np.sqrt(b) + 0.1
-    )  # do some tranformation to change gamma characteristics
-    p10 = np.percentile(b, 10).astype(float)
-    p90 = np.percentile(b, 90).astype(float)
-    mean = np.mean(b).astype(float)
-    std = np.std(b).astype(float)
-    if std < 0.001:
-        std = 1
-    return [p10, p90, mean, std]
+def calStat(data):
+    data = data.cpu().detach().numpy()
+    data = data.flatten()
+    data = data[~np.isnan(data)]
+    mean = np.mean(data)
+    std = np.std(data)
+    pct10 = np.percentile(data, 0.1)
+    pct90 = np.percentile(data, 0.9)
+    return [pct10, pct90, mean, std]
 
 def getStatDic(flow_regime, attrLst=None, attrdata=None, seriesLst=None, seriesdata=None):
-    statDict = dict()
+    statDict = {}
     # series data
     if seriesLst is not None:
         for k in range(len(seriesLst)):
             var = seriesLst[k]
-            if flow_regime==0:
-                if var in ["prcp", "Precip", "runoff", "Runoff", "Runofferror"]:
+            if flow_regime == 0:
+                if var in ["prcp", "Precip", "runoff", "Runoff", "Runofferror", "noisy_prcp"]:
                     statDict[var] = calStatgamma(seriesdata[:, :, k])
                 else:
                     statDict[var] = calStat(seriesdata[:, :, k])
-            elif flow_regime==1:
+            elif flow_regime == 1:
                 statDict[var] = calStat(seriesdata[:, :, k])
     # const attribute
     if attrLst is not None:
@@ -99,3 +98,53 @@ def getStatDic(flow_regime, attrLst=None, attrdata=None, seriesLst=None, seriesd
             statDict[var] = calStat(attrdata[:, k])
     return statDict
 
+
+def transNormbyDic(x, varLst, staDic, toNorm, flow_regime):
+    if isinstance(varLst, str):
+        varLst = [varLst]
+    out = torch.zeros_like(x)
+
+    special_vars = [
+        "prcp", "usgsFlow", "Precip", "runoff", "Runoff", "Runofferror", "noisy_prcp"
+    ]
+
+    for k, var in enumerate(varLst):
+        stat = staDic[var]
+        if toNorm:
+            if x.dim() == 3:
+                if flow_regime == 0 and var in special_vars:
+                    temp = torch.log10(torch.sqrt(x[:, :, k]) + 0.1)
+                    out[:, :, k] = (temp - stat[2]) / stat[3]
+                else:
+                    out[:, :, k] = (x[:, :, k] - stat[2]) / stat[3]
+            elif x.dim() == 2:
+                if flow_regime == 0 and var in special_vars:
+                    temp = torch.log10(torch.sqrt(x[:, k]) + 0.1)
+                    out[:, k] = (temp - stat[2]) / stat[3]
+                else:
+                    out[:, k] = (x[:, k] - stat[2]) / stat[3]
+        else:
+            if x.dim() == 3:
+                out[:, :, k] = x[:, :, k] * stat[3] + stat[2]
+                if flow_regime == 0 and var in special_vars:
+                    temptrans = torch.pow(10, out[:, :, k]) - 0.1
+                    temptrans = torch.clamp(temptrans, min=0)  # set negative as zero
+                    out[:, :, k] = temptrans ** 2
+            elif x.dim() == 2:
+                out[:, k] = x[:, k] * stat[3] + stat[2]
+                if flow_regime == 0 and var in special_vars:
+                    temptrans = torch.pow(10, out[:, k]) - 0.1
+                    temptrans = torch.clamp(temptrans, min=0)
+                    out[:, k] = temptrans ** 2
+    return out
+
+
+# Saving the dictionary
+def save_dict(dictionary, filename):
+    with open(filename, 'w') as f:
+        json.dump(dictionary, f)
+
+# Loading the dictionary
+def load_dict(filename):
+    with open(filename, 'r') as f:
+        return json.load(f)

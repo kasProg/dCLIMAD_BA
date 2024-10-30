@@ -13,12 +13,14 @@ import tqdm
 from model import QuantileMappingModel, QuantileMappingModel_Poly2
 from loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss
 from data import process_data, getStatDic
+from torch.utils.data import DataLoader, TensorDataset
+import data
 from sklearn.preprocessing import StandardScaler
 
 ###-----The code is currently accustomed to Livneh Data format ----###
 
 torch.manual_seed(42)
-device = torch.device('cuda:7')
+device = torch.device('cuda:6')
 
 dataset = '/data/kas7897/Livneh/'
 clim_model = '/data/kas7897/Livneh/'
@@ -33,13 +35,18 @@ noise_type = 'R4noisyStatic001d'
 train_period = [1980, 1990]
 test_period = [1991, 1995]
 train = 1 # training = 1; else test
-inputs = ['noisy_prcp', 'elev']
+seriesLst = ['noisy_prcp']
+attrLst = ['elev']
 
 model_type = 'SST' #[SST/model, Poly2]
 degree = 1 # only if model_type = Poly
 
 ##number of coordinates; if all then set to 'all'
 num = 2000
+batch_size = 100
+
+save_path = f'models/{clim}-{ref}/QM_{model_type}/{num}/{train_period[0]}_{train_period[1]}/{noise_type}/'
+os.makedirs(save_path, exist_ok=True)
 
 #extracting valid lat-lon pairs with non-nan prcp
 ds_sample = xr.open_dataset(f"{dataset}prec.1980.nc")
@@ -85,35 +92,46 @@ else:
     torch.save(y, f'{dataset}QM_input/y{period}{num}.pt')
 
 
+
 elev_tensor = torch.tensor(elev_data).to(x.dtype).to(device)
 # wind_tensor = torch.tensor(wind).to(x.dtype).to(device)
-
+attr_tensor = elev_tensor.unsqueeze(-1)
 
 # for inp in inputs:
-# elev_in_tensor = torch.broadcast_to(elev_tensor, x.shape).unsqueeze(2)
-# x_in = x.unsqueeze(2)
-#
-# # wind_tensor = wind_tensor.unsqueeze(2)
-#
-# input_tensor = torch.cat((elev_tensor, x_in), dim=2)
-# statDict = getStatDic(flow_regime = 1, attrLst=None, attrdata=None, seriesLst=None, seriesdata=None)
+# elev_in_tensor = torch.broadcast_to(elev_tensor, x.shape).unsqueeze(-1)
+x_in = x.unsqueeze(-1)
+# wind_tensor = wind_tensor.unsqueeze(2)
 
 
+# input_tensor = torch.cat((elev_in_tensor, x_in), dim=2)
+if train ==1:
+    statDict = getStatDic(flow_regime = 1, seriesLst = seriesLst, seriesdata = x_in, attrLst = attrLst, attrdata = attr_tensor)
+    data.save_dict(statDict, f'{save_path}/statDict.json')
+    # save statDict
+else:
+    statDict = data.load_dict(f'{save_path}/statDict.json')
+    # load StatDict
+
+attr_norm =data.transNormbyDic(attr_tensor, attrLst, statDict, toNorm=True, flow_regime=1)
+attr_norm[torch.isnan(attr_norm)] = 0.0
+series_norm = data.transNormbyDic(
+    x_in, seriesLst, statDict, toNorm=True, flow_regime= 1
+)
+series_norm[torch.isnan(series_norm)] = 0.0
+
+attr_norm_tensor = torch.broadcast_to(attr_norm, series_norm.shape)
+input_norm_tensor = torch.cat((series_norm, attr_norm_tensor), dim=2)
 
 
 torch.set_default_dtype(x.dtype)
 
-
-
-
-
-
-
 num_series = x.shape[1]
+nx = x_in.shape[-1] + attr_tensor.shape[-1]
+ny = 3 # 3-params
 
 ## Choose model
 if model_type == 'SST':
-    model = QuantileMappingModel(num_series=num_series, hidden_dim=64).to(device)
+    model = QuantileMappingModel(nx=nx, ny=3, num_series=num_series, hidden_dim=64).to(device)
 elif model_type == 'Poly2':
     model = QuantileMappingModel_Poly2(num_series=num_series, degree=degree, hidden_dim=64).to(device)
 
@@ -128,8 +146,8 @@ if train == 1:
         model.train()
 
         # Forward pass
-        transformed_x = model(x, elev_tensor)
-        # transformed_x = model(x, input_tensor)
+        # transformed_x = model(x, elev_tensor)
+        transformed_x = model(x, input_norm_tensor)
 
         # Compute the loss
         dist_loss = distributional_loss_interpolated(transformed_x, y, device=device, num_quantiles=100)
@@ -149,14 +167,14 @@ if train == 1:
             print(f'Epoch {epoch}, Loss: {loss.item():.4f}')
             # print(f'Epoch {epoch}, Loss: {dist_loss.item():.4f}')
 
-    torch.save(model.state_dict(), f'models/{clim}-{ref}/QM_{model_type}_{num}{train_period}_{noise_type}.pth')
+    torch.save(model.state_dict(), f'{save_path}/model.pth')
 
     plt.plot(loss_list)
     plt.title('Loss Curve')
     plt.show()
 
 else:
-    model.load_state_dict(torch.load(f'models/{clim}-{ref}/QM_{model_type}_{num}{train_period}_{noise_type}.pth', weights_only=True))
+    model.load_state_dict(torch.load(f'{save_path}/model.pth', weights_only=True))
     model.eval()
 
 
