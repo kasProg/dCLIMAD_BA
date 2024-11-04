@@ -10,7 +10,7 @@ import numpy as np
 import pickle
 import valid_crd
 import tqdm
-from model import QuantileMappingModel, QuantileMappingModel_Poly2
+from model import QuantileMappingModel_, QuantileMappingModel_Poly2
 from loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss
 from data import process_data, getStatDic
 from torch.utils.data import DataLoader, TensorDataset
@@ -23,21 +23,23 @@ torch.manual_seed(42)
 device = torch.device('cuda:6')
 
 dataset = '/data/kas7897/Livneh/'
-clim_model = '/data/kas7897/GFDL-ESM4/'
+clim_model = '/data/kas7897/Livneh/'
 
-clim = 'GFDL-ESM4'
+clim = 'livneh'
 ref = 'livneh'
 
 ##if running synthetic case
-noise_type = 'livneh_bci'
+noise_type = 'R5noisy01d'
 # noise_type = 'livneh_bci'
 # noise_type = 'bci_Wnoisy001d'
 train_period = [1980, 1990]
-test_period = [1980, 1990]
-train = 1 # training = 1; else test
-seriesLst = ['noisy_prcp', 'wind']
+# test_period = [1980, 1990]
+test_period = [1991, 1995]
+train = 0 # training = 1; else test
+# seriesLst = ['noisy_prcp', 'wind']
+seriesLst = ['noisy_prcp']
 attrLst = ['elev']
-epochs = 500
+epochs = 300
 
 model_type = 'SST' #[SST/model, Poly2]
 degree = 1 # only if model_type = Poly
@@ -89,38 +91,42 @@ else:
     y = process_data(dataset, period, valid_coords, num, device, var='prec')
     torch.save(y, f'{dataset}QM_input/y{period}{num}.pt')
 
+
+x_in = x.unsqueeze(-1)
+
 #addigng wind_data
-if os.path.exists(f'{dataset}/wind/QM_input/wind{period}{num}.pt'):
-    print('loading wind....')
-    wind = torch.load(f'{dataset}/wind/QM_input/wind{period}{num}.pt', weights_only=False).to(device)
-else:
-    print('processing wind...')
-    wind = process_data(f'{dataset}/wind', period, valid_coords, num, device, var='wind')
-    torch.save(wind, f'{dataset}/wind/QM_input/wind{period}{num}.pt')
-    wind = torch.tensor(wind)
+if 'wind' in seriesLst:
+    if os.path.exists(f'{dataset}/wind/QM_input/wind{period}{num}.pt'):
+        print('loading wind....')
+        wind = torch.load(f'{dataset}/wind/QM_input/wind{period}{num}.pt', weights_only=False).to(device)
+    else:
+        print('processing wind...')
+        wind = process_data(f'{dataset}/wind', period, valid_coords, num, device, var='wind')
+        torch.save(wind, f'{dataset}/wind/QM_input/wind{period}{num}.pt')
+        wind = torch.tensor(wind)
+
+    wind_tensor = wind.to(x.dtype).to(device)
+    wind_tensor = wind_tensor.unsqueeze(-1)
+    x_in = torch.cat((x_in, wind_tensor), dim=2)
 
 elev_tensor = torch.tensor(elev_data).to(x.dtype).to(device)
-wind_tensor = wind.to(x.dtype).to(device)
 attr_tensor = elev_tensor.unsqueeze(-1)
 
 # for inp in inputs:
 # elev_in_tensor = torch.broadcast_to(elev_tensor, x.shape).unsqueeze(-1)
-x_in = x.unsqueeze(-1)
-wind_tensor = wind_tensor.unsqueeze(-1)
-x_in = torch.cat((x_in, wind_tensor), dim=2)
 
 if train == 1:
-    statDict = getStatDic(flow_regime = 1, seriesLst = seriesLst, seriesdata = x_in, attrLst = attrLst, attrdata = attr_tensor)
+    statDict = getStatDic(flow_regime = 0, seriesLst = seriesLst, seriesdata = x_in, attrLst = attrLst, attrdata = attr_tensor)
     data.save_dict(statDict, f'{save_path}/statDict.json')
     # save statDict
 else:
     statDict = data.load_dict(f'{save_path}/statDict.json')
     # load StatDict
 
-attr_norm = data.transNormbyDic(attr_tensor, attrLst, statDict, toNorm=True, flow_regime=1)
+attr_norm = data.transNormbyDic(attr_tensor, attrLst, statDict, toNorm=True, flow_regime=0)
 attr_norm[torch.isnan(attr_norm)] = 0.0
 series_norm = data.transNormbyDic(
-    x_in, seriesLst, statDict, toNorm=True, flow_regime= 1
+    x_in, seriesLst, statDict, toNorm=True, flow_regime= 0
 )
 series_norm[torch.isnan(series_norm)] = 0.0
 
@@ -144,7 +150,7 @@ ny = 3 # 3-params
 
 ## Choose model
 if model_type == 'SST':
-    model = QuantileMappingModel(nx=nx, ny=3, num_series=num_series, hidden_dim=64).to(device)
+    model = QuantileMappingModel_(nx=nx, ny=ny, num_series=num_series, hidden_dim=64).to(device)
 elif model_type == 'Poly2':
     model = QuantileMappingModel_Poly2(num_series=num_series, degree=degree, hidden_dim=64).to(device)
 
@@ -174,6 +180,7 @@ if train == 1:
             rainy_loss = rainy_day_loss(transformed_x.T, batch_y.T)
 
             loss = dist_loss + kl_loss + balance_loss * rainy_loss
+            # loss = dist_loss + balance_loss * rainy_loss
 
             # Backward pass and optimization
             optimizer.zero_grad()
@@ -246,7 +253,7 @@ else:
     plt.title("Transformed x vs Target y")
     plt.legend()
 
-plt.show()
+    plt.show()
 
 
 # best_ind, best_improv = min(enumerate(individual_improvements), key=lambda x: x[1])

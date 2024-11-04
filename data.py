@@ -59,11 +59,11 @@ def calStatgamma(x):
     x = x.cpu().detach().numpy()
     a = x.flatten()
     b = a[~np.isnan(a)]  # kick out NaN
-    b = np.log10(torch.sqrt(b) + 0.1)  # transformation to change gamma characteristics
-    p10 = np.percentile(b, 0.1).float()
-    p90 = np.percentile(b, 0.9).float()
-    mean = np.mean(b).float()
-    std = np.std(b).float()
+    b = np.log10(np.sqrt(b) + 0.1)  # transformation to change gamma characteristics
+    p10 = np.percentile(b, 0.1)
+    p90 = np.percentile(b, 0.9)
+    mean = np.mean(b)
+    std = np.std(b)
     if std < 0.001:
         std = np.tensor(1.0)
     return [p10, p90, mean, std]
