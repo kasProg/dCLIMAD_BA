@@ -4,6 +4,8 @@ import torch
 import numpy as np
 import os
 import json
+import matplotlib.pyplot as plt
+import io
 
 def load_and_process_year(path, year, valid_coords, num, var):
 
@@ -148,3 +150,44 @@ def save_dict(dictionary, filename):
 def load_dict(filename):
     with open(filename, 'r') as f:
         return json.load(f)
+    
+
+def log_plots_to_tensorboard(writer, y, x, xt, elev_data, n, ln, exp, epoch):
+    """
+    Logs combined scatter plots to TensorBoard as one figure using a SummaryWriter.
+    
+    Parameters:
+    - writer: TensorBoard SummaryWriter object.
+    - y, x, xt: Data for Original vs. Recovered plot.
+    - elev_data, n, ln: Data for Elevation vs. Noise plot.
+    - epoch: The epoch number to use as the global_step for logging.
+    """
+    
+    # Create a figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+
+    fig.suptitle(f"Analysis of Learned Noise \n {exp}")
+
+    # First subplot: Original vs. Recovered
+    ax1.scatter(x=y, y=x, c='red', s=10, label='Original')
+    ax1.scatter(x=y, y=xt, c='green', s=10, label='Transformed')
+    ax1.plot(ax1.get_xlim(), ax1.get_xlim(), 'blue', linestyle='--', label='1 - 1')
+    ax1.set_xlabel('Original')
+    ax1.set_ylabel('Perturbed')
+    ax1.legend()
+    ax1.set_title("Original vs. Perturbed")
+
+    # Second subplot: Elevation vs. Noise
+    # mean_n = np.nanmean(n, axis=0)
+    # mean_ln = np.nanmean(ln, axis=0)
+    ax2.scatter(elev_data, n, c='red', s=10, label='Original')
+    ax2.scatter(elev_data, ln, c='green', s=10, label='Learned')
+    ax2.set_xlabel('Elevation')
+    ax2.set_ylabel('Noise')
+    ax2.legend()
+    ax2.set_title("Elevation vs. Noise")
+
+    # Log the combined figure to TensorBoard
+    writer.add_figure("Analysis of Learned Noise", fig, global_step=epoch)
+    plt.close(fig)  # Close the figure to save memory
+

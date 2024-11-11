@@ -4,22 +4,22 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 import os
 
-### This code adds noise to the coarsened data
+### This code adds noise to the coarsened/fine data
 
-noise_factor = 0.1
-noise_type = 'red5'
+noise_factor = 0.001
+noise_type = 'white'
 
-bci = False
+bci = True
 dynamic = True
 
-elev_path = '/data/kas7897/diffDownscale/elev_Livneh.nc'
+elev_path = '/data/kas7897/diffDownscale/elev_Livneh_025d.nc'
 data_path = '/data/kas7897/Livneh'
-path = f'/data/kas7897/Livneh/R5noisy01d'
+path = f'/data/kas7897/Livneh/upscale_1by4_Wnoisy0001d_bci'
 os.makedirs(path, exist_ok=True)
 
 
 def generate_elevation_based_noise(elevation, noise_type='red', noise_factor=0.1):
-    if noise_type not in ['red', 'white', 'mixed', 'log', 'red2', 'red3', 'red4', 'red5']:
+    if noise_type not in ['red', 'white', 'mixed', 'log', 'red2', 'red3', 'red4', 'red5', 'white2']:
         raise ValueError("Invalid noise_type. Choose from 'red', 'white', 'mixed', 'log', or 'red2'.")
 
     # Generate random normal noise
@@ -55,6 +55,9 @@ def generate_elevation_based_noise(elevation, noise_type='red', noise_factor=0.1
     elif noise_type == 'white':
         # Additive noise independent of elevation
         scaled_noise = noise_additive + (elevation*noise_factor)
+    elif noise_type == 'white2':
+        # Additive noise independent of elevation
+        scaled_noise = (elevation * noise_factor)
     elif noise_type == 'mixed':
         # Combination of independent additive and multiplicative noise
         scaled_noise = (noise_multiplicative * elevation * noise_factor) + noise_additive + (elevation*noise_factor)

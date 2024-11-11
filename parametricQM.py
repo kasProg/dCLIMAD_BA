@@ -2,15 +2,15 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import matplotlib.pyplot as plt
-from scipy.stats import skew
 import xarray as xr
+from torch.utils.tensorboard import SummaryWriter
 import os
 import pandas as pd
 import numpy as np
 import pickle
 import valid_crd
 import tqdm
-from model import QuantileMappingModel_, QuantileMappingModel_Poly2
+from model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
 from loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss
 from data import process_data, getStatDic
 from torch.utils.data import DataLoader, TensorDataset
@@ -20,35 +20,49 @@ from sklearn.preprocessing import StandardScaler
 ###-----The code is currently accustomed to Livneh Data format ----###
 
 torch.manual_seed(42)
-device = torch.device('cuda:6')
+device = torch.device('cuda:0')
+logging = True
+
+if logging:
+    exp = 'White_0001d/Interpolation/Random/3Layers_mod'
+    writer = SummaryWriter(f"runs/{exp}")
 
 dataset = '/data/kas7897/Livneh/'
 clim_model = '/data/kas7897/Livneh/'
 
 clim = 'livneh'
 ref = 'livneh'
+elev_path = '/data/kas7897/diffDownscale/elev_Livneh.nc' 
 
 ##if running synthetic case
-noise_type = 'R5noisy01d'
+# noise_type = 'R5noisy001d'
 # noise_type = 'livneh_bci'
-# noise_type = 'bci_Wnoisy001d'
+noise_type = 'upscale_1by4_Wnoisy0001d_bci'
 train_period = [1980, 1990]
 # test_period = [1980, 1990]
 test_period = [1991, 1995]
-train = 0 # training = 1; else test
+train = 1 # training = 1; else test
 # seriesLst = ['noisy_prcp', 'wind']
 seriesLst = ['noisy_prcp']
 attrLst = ['elev']
 epochs = 300
 
+
+# model params
 model_type = 'SST' #[SST/model, Poly2]
-degree = 1 # only if model_type = Poly
+degree = 0 # only if model_type = Poly
+layers = 3 #number of layers to ANN
+ny = 3 # number of params
 
 ##number of coordinates; if all then set to 'all'
 num = 2000
 batch_size = 100
 
-save_path = f'models/{clim}-{ref}/QM_{model_type}/{num}/{train_period[0]}_{train_period[1]}/{noise_type}/'
+
+
+###-------- Developer section here -----------###
+
+save_path = f'models/{clim}-{ref}/QM_{model_type}_layers{layers}/{num}/{train_period[0]}_{train_period[1]}/{noise_type}/'
 os.makedirs(save_path, exist_ok=True)
 
 #extracting valid lat-lon pairs with non-nan prcp
@@ -57,7 +71,7 @@ valid_coords = valid_crd.valid_lat_lon(ds_sample)
 
 
 #processing elevation data
-elev = xr.open_dataset('/data/kas7897/diffDownscale/elev_Livneh.nc')
+elev = xr.open_dataset(elev_path)
 if num == 'all':
     elev_data = elev['elevation'].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
                                       lon=xr.DataArray(valid_coords[:, 1], dims='points'),
@@ -112,8 +126,21 @@ if 'wind' in seriesLst:
 elev_tensor = torch.tensor(elev_data).to(x.dtype).to(device)
 attr_tensor = elev_tensor.unsqueeze(-1)
 
-# for inp in inputs:
-# elev_in_tensor = torch.broadcast_to(elev_tensor, x.shape).unsqueeze(-1)
+
+if logging:
+    ## For tensorboard
+    writer.add_text(
+        "Hyperparameters",
+        f"""
+        Noise Type: {noise_type}\n
+        Training Period: {train_period}\n
+        Testing Period: {test_period}\n
+        Num Coordinates: {num}\n
+        Model Type: {model_type}
+        """,
+        0
+    )
+    ##
 
 if train == 1:
     statDict = getStatDic(flow_regime = 0, seriesLst = seriesLst, seriesdata = x_in, attrLst = attrLst, attrdata = attr_tensor)
@@ -141,16 +168,16 @@ x = x.T
 y = y.T
 input_norm_tensor = input_norm_tensor.permute(1, 0, 2)
 dataset = TensorDataset(input_norm_tensor, x, y)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
 
 num_series = x.shape[1]
 nx = x_in.shape[-1] + attr_tensor.shape[-1]
-ny = 3 # 3-params
+
 
 ## Choose model
 if model_type == 'SST':
-    model = QuantileMappingModel_(nx=nx, ny=ny, num_series=num_series, hidden_dim=64).to(device)
+    model = QuantileMappingModel(nx=nx, ny=ny, num_series=num_series, hidden_dim=64, num_layers=layers).to(device)
 elif model_type == 'Poly2':
     model = QuantileMappingModel_Poly2(num_series=num_series, degree=degree, hidden_dim=64).to(device)
 
@@ -191,6 +218,8 @@ if train == 1:
 
         # Average loss for the epoch
         avg_epoch_loss = epoch_loss / len(dataloader)
+        if logging:
+            writer.add_scalar("Loss/train", avg_epoch_loss, epoch)
         loss_list.append(avg_epoch_loss)
 
         if epoch % 10 == 0:
@@ -223,38 +252,72 @@ else:
             x.append(batch_x.cpu())
 
 
-    # # transformed_x = model(x, elev_tensor).cpu().detach().numpy()
+    ## no batch exp
     # transformed_x = model(x, input_norm_tensor).cpu().detach().numpy()
     # x = x.cpu().detach().numpy()
     # y = y.cpu().detach().numpy()
+
     transformed_x = torch.cat(transformed_x, dim=0).numpy().T
     x = torch.cat(x, dim=0).numpy().T
     y = torch.cat(y, dim=0).numpy().T
+    torch.save(transformed_x, f'{save_path}/xt.pt')
+    torch.save(x, f'{save_path}/x.pt')
+    torch.save(y, f'{save_path}/y.pt')
     avg_improvement, individual_improvements = compare_distributions(transformed_x, x, y)
+
+
     print(f"Average distribution improvement: {avg_improvement:.4f}")
 
     print(f"RMSE between Noise and Target: {np.median(rmse(x, y))}")
     print(f"RMSE between Corrected and Target: {np.median(rmse(transformed_x, y))}")
 
-    best_ind, best_improv = max(enumerate(individual_improvements), key=lambda x: x[1])
+    if logging:
+        writer.add_text(
+            "Evaluation Metrics",
+            f"""
+            Average distribution improvement: {avg_improvement:.4f}\n
+            RMSE between Noise and Target: {np.median(rmse(x, y))}\n
+            RMSE between Corrected and Target: {np.median(rmse(transformed_x, y))}\n
+            """,
+            0
+            )
+        
+        y[y==0] = np.nan
+        x[x==0] = np.nan
+        transformed_x[transformed_x==0] = np.nan
+        
+        if 'W' in noise_type:
+            n = x - y
+            ln = x - transformed_x
+        elif 'R' in noise_type:
+            n = x/y
+            ln = x/transformed_x
 
-    # Step 6: Plotting the original and transformed distributions
-    plt.figure(figsize=(12, 6))
-    plt.suptitle(f'WS Distance Improvement:{best_improv}')
-    plt.subplot(1, 2, 1)
-    plt.hist(x[:, best_ind], bins=30, alpha=0.6, label="Noisy")
-    plt.hist(y[:, best_ind], bins=30, alpha=0.6, label="Target Y", color='orange')
-    plt.title("Noisy x and Target Distributions")
-    plt.legend()
+        
+        # Simple plot
+        elev_broadcast = np.repeat(elev_data[np.newaxis, :], x.shape[0], axis=0)
+        data.log_plots_to_tensorboard(writer, y, x, transformed_x, elev_broadcast, n, ln, exp, epoch=0)
+        writer.close()
 
-    plt.subplot(1, 2, 2)
-    plt.hist(transformed_x[:, best_ind], bins=30, alpha=0.6, label="Transformed x", color='green')
-    plt.hist(y[:, best_ind], bins=30, alpha=0.6, label="Target y", color='orange')
-    plt.title("Transformed x vs Target y")
-    plt.legend()
 
-    plt.show()
+    # best_ind, best_improv = max(enumerate(individual_improvements), key=lambda x: x[1])
 
+    # # Step 6: Plotting the original and transformed distributions
+    # plt.figure(figsize=(12, 6))
+    # plt.suptitle(f'WS Distance Improvement:{best_improv}')
+    # plt.subplot(1, 2, 1)
+    # plt.hist(x[:, best_ind], bins=30, alpha=0.6, label="Noisy")
+    # plt.hist(y[:, best_ind], bins=30, alpha=0.6, label="Target Y", color='orange')
+    # plt.title("Noisy x and Target Distributions")
+    # plt.legend()
+
+    # plt.subplot(1, 2, 2)
+    # plt.hist(transformed_x[:, best_ind], bins=30, alpha=0.6, label="Transformed x", color='green')
+    # plt.hist(y[:, best_ind], bins=30, alpha=0.6, label="Target y", color='orange')
+    # plt.title("Transformed x vs Target y")
+    # plt.legend()
+
+    # plt.show(
 
 # best_ind, best_improv = min(enumerate(individual_improvements), key=lambda x: x[1])
 
