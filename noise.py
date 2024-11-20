@@ -6,20 +6,20 @@ import os
 
 ### This code adds noise to the coarsened/fine data
 
-noise_factor = 0.001
-noise_type = 'white'
+noise_factor = 0.01
+noise_type = 'red6'
 
 bci = True
 dynamic = True
 
 elev_path = '/data/kas7897/diffDownscale/elev_Livneh_025d.nc'
 data_path = '/data/kas7897/Livneh'
-path = f'/data/kas7897/Livneh/upscale_1by4_Wnoisy0001d_bci'
+path = f'/data/kas7897/Livneh/upscale_1by4_R6noisy001d_bci'
 os.makedirs(path, exist_ok=True)
 
 
 def generate_elevation_based_noise(elevation, noise_type='red', noise_factor=0.1):
-    if noise_type not in ['red', 'white', 'mixed', 'log', 'red2', 'red3', 'red4', 'red5', 'white2']:
+    if noise_type not in ['red', 'white', 'mixed', 'log', 'red2', 'red3', 'red4', 'red5', 'white2', 'red6']:
         raise ValueError("Invalid noise_type. Choose from 'red', 'white', 'mixed', 'log', or 'red2'.")
 
     # Generate random normal noise
@@ -49,6 +49,12 @@ def generate_elevation_based_noise(elevation, noise_type='red', noise_factor=0.1
         new_max = 0.5
         new_min = -0.5
         scaled_noise = noise_factor * (elevation - elevation.mean()) + noise_multiplicative
+        scaled_noise = (scaled_noise - scaled_noise.min()) / \
+                       (scaled_noise.max() - scaled_noise.min()) * (new_max - new_min) + new_min
+    elif noise_type == 'red6':
+        new_max = 0.5
+        new_min = -0.5
+        scaled_noise = noise_factor * (elevation - elevation.mean())
         scaled_noise = (scaled_noise - scaled_noise.min()) / \
                        (scaled_noise.max() - scaled_noise.min()) * (new_max - new_min) + new_min
 

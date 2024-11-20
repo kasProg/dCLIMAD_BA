@@ -164,7 +164,7 @@ def log_plots_to_tensorboard(writer, y, x, xt, elev_data, n, ln, exp, epoch):
     """
     
     # Create a figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
 
     fig.suptitle(f"Analysis of Learned Noise \n {exp}")
 
@@ -178,8 +178,6 @@ def log_plots_to_tensorboard(writer, y, x, xt, elev_data, n, ln, exp, epoch):
     ax1.set_title("Original vs. Perturbed")
 
     # Second subplot: Elevation vs. Noise
-    # mean_n = np.nanmean(n, axis=0)
-    # mean_ln = np.nanmean(ln, axis=0)
     ax2.scatter(elev_data, n, c='red', s=10, label='Original')
     ax2.scatter(elev_data, ln, c='green', s=10, label='Learned')
     ax2.set_xlabel('Elevation')
@@ -187,6 +185,14 @@ def log_plots_to_tensorboard(writer, y, x, xt, elev_data, n, ln, exp, epoch):
     ax2.legend()
     ax2.set_title("Elevation vs. Noise")
 
+    mean_n = np.nanmean(n, axis=0)
+    mean_ln = np.nanmean(ln, axis=0)
+    ax3.scatter(elev_data[0,:], mean_n, c='red', s=10, label='Original')
+    ax3.scatter(elev_data[0,:], mean_ln, c='green', s=10, label='Learned')
+    ax3.set_xlabel('Elevation')
+    ax3.set_ylabel('Mean Noise')
+    ax3.legend()
+    ax3.set_title("Elevation vs. Mean Noise")
     # Log the combined figure to TensorBoard
     writer.add_figure("Analysis of Learned Noise", fig, global_step=epoch)
     plt.close(fig)  # Close the figure to save memory

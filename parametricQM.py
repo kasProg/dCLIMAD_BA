@@ -24,40 +24,40 @@ device = torch.device('cuda:0')
 logging = True
 
 if logging:
-    exp = 'White_0001d/Interpolation/Random/3Layers_mod'
+    exp = 'GFDL-ESM4/ANN_mod4Layers'
     writer = SummaryWriter(f"runs/{exp}")
 
 dataset = '/data/kas7897/Livneh/'
-clim_model = '/data/kas7897/Livneh/'
+clim_model = '/data/kas7897/GFDL-ESM4/'
 
-clim = 'livneh'
+clim = 'GFDL-ESM4'
 ref = 'livneh'
-elev_path = '/data/kas7897/diffDownscale/elev_Livneh.nc' 
-
+elev_path = '/data/kas7897/diffDownscale/elev_Livneh.nc'
 ##if running synthetic case
 # noise_type = 'R5noisy001d'
-# noise_type = 'livneh_bci'
-noise_type = 'upscale_1by4_Wnoisy0001d_bci'
+noise_type = 'livneh_bci'
+# noise_type = 'upscale_1by4_bci'
 train_period = [1980, 1990]
-# test_period = [1980, 1990]
+# test_period = [1980, 1990]ahh
 test_period = [1991, 1995]
-train = 1 # training = 1; else test
-# seriesLst = ['noisy_prcp', 'wind']
-seriesLst = ['noisy_prcp']
+train = 0 # training = 1; else test
+seriesLst = ['noisy_prcp', 'wind']
+# seriesLst = ['noisy_prcp']
 attrLst = ['elev']
-epochs = 300
-
+epochs = 600
+testepoch = 0
 
 # model params
-model_type = 'SST' #[SST/model, Poly2]
-degree = 0 # only if model_type = Poly
-layers = 3 #number of layers to ANN
-ny = 3 # number of params
+model_type = 'SST' #[SST, Poly2]
+resume = False
+degree = 1 # only if model_type = Poly
+layers = 4 #number of layers to ANN
+ny = 4 # number of params
 
 ##number of coordinates; if all then set to 'all'
 num = 2000
+# slice = 2000 #for spatial test; set 0 otherwise
 batch_size = 100
-
 
 
 ###-------- Developer section here -----------###
@@ -176,10 +176,20 @@ nx = x_in.shape[-1] + attr_tensor.shape[-1]
 
 
 ## Choose model
+
 if model_type == 'SST':
-    model = QuantileMappingModel(nx=nx, ny=ny, num_series=num_series, hidden_dim=64, num_layers=layers).to(device)
+    model = QuantileMappingModel(nx=nx, ny=ny, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='ANN').to(device)
+elif model_type == 'FNO2d':
+    model = QuantileMappingModel(nx=nx, ny=ny, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='FNO2d').to(device)
+elif model_type == 'FNO1d':
+    model = QuantileMappingModel(nx=nx, ny=ny, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='FNO1d').to(device)
 elif model_type == 'Poly2':
     model = QuantileMappingModel_Poly2(num_series=num_series, degree=degree, hidden_dim=64).to(device)
+
+if resume:
+    state_dict = torch.load(f'{save_path}model_{testepoch}.pth', map_location=device, weights_only=True)
+    model.load_state_dict(state_dict)
+    
 
 if train == 1:
     optimizer = optim.Adam(model.parameters(), lr=0.01)
@@ -188,7 +198,7 @@ if train == 1:
     # Training loop
     num_epochs = epochs
     loss_list = []
-    for epoch in range(num_epochs):
+    for epoch in range(testepoch ,num_epochs+1):
         model.train()
         epoch_loss = 0
 
@@ -224,16 +234,16 @@ if train == 1:
 
         if epoch % 10 == 0:
             print(f'Epoch {epoch}, Average Loss: {avg_epoch_loss:.4f}')
-
-
-    torch.save(model.state_dict(), f'{save_path}/model.pth')
+        
+        if epoch % 100 == 0:
+            torch.save(model.state_dict(), f'{save_path}/model_{epoch}.pth')
 
     plt.plot(loss_list)
     plt.title('Loss Curve')
     plt.show()
 
 else:
-    model.load_state_dict(torch.load(f'{save_path}/model.pth', weights_only=True))
+    model.load_state_dict(torch.load(f'{save_path}/model_{epochs}.pth', weights_only=True))
     model.eval()
     transformed_x = []
     x = []
@@ -265,19 +275,24 @@ else:
     torch.save(y, f'{save_path}/y.pt')
     avg_improvement, individual_improvements = compare_distributions(transformed_x, x, y)
 
-
+    quantile_rmse_model = torch.sqrt(distributional_loss_interpolated(torch.tensor(x), torch.tensor(y), device='cpu', num_quantiles=100))
+    quantile_rmse_bs = torch.sqrt(distributional_loss_interpolated(torch.tensor(transformed_x), torch.tensor(y), device='cpu', num_quantiles=100))
     print(f"Average distribution improvement: {avg_improvement:.4f}")
 
-    print(f"RMSE between Noise and Target: {np.median(rmse(x, y))}")
-    print(f"RMSE between Corrected and Target: {np.median(rmse(transformed_x, y))}")
+    print(f"Quantile RMSE between Model and Target: {quantile_rmse_model}")
+    print(f"Quantile RMSE between Corrected and Target: {quantile_rmse_bs}")
+    print(f"Quantile RMSE Improvement: {quantile_rmse_model - quantile_rmse_bs}")
 
     if logging:
         writer.add_text(
             "Evaluation Metrics",
             f"""
             Average distribution improvement: {avg_improvement:.4f}\n
-            RMSE between Noise and Target: {np.median(rmse(x, y))}\n
+            RMSE between Model and Target: {np.median(rmse(x, y))}\n
             RMSE between Corrected and Target: {np.median(rmse(transformed_x, y))}\n
+            Quantile RMSE between Model and Target: {quantile_rmse_model}\n 
+            Quantile RMSE between Corrected and Target: {quantile_rmse_bs}\n
+            Quantile RMSE Improvement: {quantile_rmse_model - quantile_rmse_bs}\n            
             """,
             0
             )
@@ -292,6 +307,9 @@ else:
         elif 'R' in noise_type:
             n = x/y
             ln = x/transformed_x
+        else:
+            n = x - y
+            ln = x - transformed_x
 
         
         # Simple plot

@@ -5,17 +5,24 @@ from torch.nn import Parameter
 import math
 import torch.nn.functional as F
 from lstm import CudnnLstmModel
+from fno import FNO2d, FNO1d
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 class QuantileMappingModel(nn.Module):
-    def __init__(self, nx=1, ny=3, num_series=100, hidden_dim=64, num_layers=2):
+    def __init__(self, nx=1, ny=3, num_series=100, hidden_dim=64, num_layers=2, modelType='ANN'):
         super(QuantileMappingModel, self).__init__()
         self.num_series = num_series
-        self.transform_generator = self.build_transform_generator(nx, hidden_dim, ny, num_layers)
 
-        # self.lstm = CudnnLstmModel(nx=nx, ny=ny, hiddenSize=hidden_dim, dr=0.5)
+        if modelType=='ANN':
+            self.transform_generator = self.build_transform_generator(nx, hidden_dim, ny, num_layers)
+        elif modelType=='FNO2d':
+            self.transform_generator = FNO2d(16,16, hidden_dim)
+        elif modelType=='FNO1d':
+            self.transform_generator = FNO1d(modes = 16, width = hidden_dim, input_dim=nx, output_dim=ny)
+        elif modelType=='LSTM':
+            self.lstm = CudnnLstmModel(nx=nx, ny=ny, hiddenSize=hidden_dim, dr=0.5)
 
     def build_transform_generator(self, nx, hidden_dim, ny, num_layers):
         layers = []
@@ -39,11 +46,21 @@ class QuantileMappingModel(nn.Module):
     def forward(self, x, input_tensor):
         params = self.transform_generator(input_tensor)
         scale = torch.exp(params[:, :, 0])  # Ensure positive scaling
-        shift = params[:,:,1]
-        threshold = torch.sigmoid(params[:, :, 2])  # Between 0 and 0.1
+        scale1 = torch.exp(params[:, :, 1]) 
+        # scale2 = torch.exp(params[:, :, 2]) 
+
+        shift = params[:, :, 2]
+        # shift1 = params[:, :, 3]
+        threshold = torch.sigmoid(params[:, :, 3])  # Between 0 and 0.1
         power = 1.0
 
-        transformed_x = ((x**power) * scale) + shift
+        # transformed_x = ((x**power) * scale) + shift
+        transformed_x = ((x**2) * scale) + ((x**1) * scale1)  + shift
+        # transformed_x = ((x**3) * scale) + ((x**2) * scale1) + ((x**1) * scale2)  + shift
+
+
+        # transformed_x = ((transformed_x**power) * scale1) + shift1
+
         zero_mask = x <= threshold
         transformed_x = torch.where(zero_mask, torch.zeros_like(transformed_x), transformed_x)
         transformed_x = torch.relu(transformed_x)
