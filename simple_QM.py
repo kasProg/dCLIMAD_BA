@@ -7,6 +7,10 @@ from scipy.stats import norm, gamma, erlang, expon, percentileofscore
 import os
 import matplotlib.pyplot as plt
 
+#extracting valid lat-lon pairs with non-nan prcp
+# ds_sample = xr.open_dataset(f"{dataset}prec.1980.nc")
+# valid_coords = valid_crd.valid_lat_lon(ds_sample)
+
 
 dataset = '/data/kas7897/Livneh/'
 clim_model = '/data/kas7897/GFDL-ESM4/'

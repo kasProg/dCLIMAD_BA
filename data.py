@@ -15,6 +15,8 @@ def load_and_process_year(path, year, valid_coords, num, var):
         file_prec_underscore = os.path.join(path, f'prec_{year}.nc')
         file_prec_dot = os.path.join(path, f'prec.{year}.nc')
         file_wind = os.path.join(path, f'wind.{year}.nc')
+        file_wind_up = os.path.join(path, f'wind_{year}.nc')
+
         # Check which file exists, and use the correct one
         if os.path.exists(file_prec_underscore):
             path = file_prec_underscore
@@ -22,6 +24,9 @@ def load_and_process_year(path, year, valid_coords, num, var):
             path = file_prec_dot
         elif os.path.exists(file_wind):
             path = file_wind
+        elif os.path.exists(file_wind_up):
+            path = file_wind_up
+
 
 
     x_year = xr.open_dataset(path)
@@ -143,8 +148,22 @@ def transNormbyDic(x, varLst, staDic, toNorm, flow_regime):
 
 # Saving the dictionary
 def save_dict(dictionary, filename):
+    def convert_values(obj):
+        if isinstance(obj, dict):
+            return {key: convert_values(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_values(item) for item in obj]
+        elif isinstance(obj, np.float32):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()  # Convert NumPy arrays to lists
+        else:
+            return obj
+
+    # Convert the dictionary
+    converted_dict = convert_values(dictionary)
     with open(filename, 'w') as f:
-        json.dump(dictionary, f)
+        json.dump(converted_dict, f)
 
 # Loading the dictionary
 def load_dict(filename):

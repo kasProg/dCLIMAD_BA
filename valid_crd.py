@@ -3,14 +3,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import wasserstein_distance
 
-def valid_lat_lon(ds):
-    lat = ds.lat.values
-    lon = ds.lon.values
+def valid_lat_lon(ds, var_name='prec'):
+    if 'lat' in ds.variables:
+        lat = ds.lat.values
+        lon = ds.lon.values
+    else:
+        lat = ds.latitude.values
+        lon = ds.longitude.values
+
 
     # Create meshgrid for target coordinates
     lon_mesh, lat_mesh = np.meshgrid(lon, lat)
     # Create a mask for valid (non-NaN) values
-    valid_mask = ds['prec'].values[0] == ds['prec'].values[0]
+    valid_mask = ds[var_name].values[0] == ds[var_name].values[0]
 
     # Extract valid latitude and longitude pairs
     valid_lats = lat_mesh[valid_mask]

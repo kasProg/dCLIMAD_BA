@@ -11,11 +11,13 @@ import pickle
 import valid_crd
 import tqdm
 from model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
-from loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss
+from loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss
 from data import process_data, getStatDic
 from torch.utils.data import DataLoader, TensorDataset
 import data
 from sklearn.preprocessing import StandardScaler
+from ibicus.evaluate import assumptions, correlation, marginal, multivariate, trend
+from ibicus.evaluate.metrics import *
 
 ###-----The code is currently accustomed to Livneh Data format ----###
 
@@ -23,25 +25,21 @@ torch.manual_seed(42)
 device = torch.device('cuda:0')
 logging = True
 
-if logging:
-    exp = 'GFDL-ESM4/ANN_mod4Layers'
-    writer = SummaryWriter(f"runs/{exp}")
-
-dataset = '/data/kas7897/Livneh/'
+dataset = '/data/kas7897/Livneh/upscale_1by4/'
 clim_model = '/data/kas7897/GFDL-ESM4/'
 
 clim = 'GFDL-ESM4'
 ref = 'livneh'
-elev_path = '/data/kas7897/diffDownscale/elev_Livneh.nc'
+elev_path = '/data/kas7897/diffDownscale/elev_Livneh_025d.nc'
 ##if running synthetic case
 # noise_type = 'R5noisy001d'
-noise_type = 'livneh_bci'
+noise_type = 'livneh025d_interp'
 # noise_type = 'upscale_1by4_bci'
 train_period = [1980, 1990]
 # test_period = [1980, 1990]ahh
 test_period = [1991, 1995]
-train = 0 # training = 1; else test
-seriesLst = ['noisy_prcp', 'wind']
+train = 1 # training = 1; else test
+seriesLst = ['noisy_prcp']
 # seriesLst = ['noisy_prcp']
 attrLst = ['elev']
 epochs = 600
@@ -50,23 +48,26 @@ testepoch = 0
 # model params
 model_type = 'SST' #[SST, Poly2]
 resume = False
-degree = 1 # only if model_type = Poly
+degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
-ny = 4 # number of params
+# ny = 4 # number of params
 
 ##number of coordinates; if all then set to 'all'
 num = 2000
-# slice = 2000 #for spatial test; set 0 otherwise
+slice = 0 #for spatial test; set 0 otherwise
 batch_size = 100
 
+if logging:
+    exp = f'GFDL-ESM4/ANN_mod19_{layers}Layers_{degree}degree'
+    writer = SummaryWriter(f"runs/{exp}")
 
 ###-------- Developer section here -----------###
 
-save_path = f'models/{clim}-{ref}/QM_{model_type}_layers{layers}/{num}/{train_period[0]}_{train_period[1]}/{noise_type}/'
+save_path = f'models/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_mod19/{num}/{train_period[0]}_{train_period[1]}/{noise_type}/'
 os.makedirs(save_path, exist_ok=True)
 
 #extracting valid lat-lon pairs with non-nan prcp
-ds_sample = xr.open_dataset(f"{dataset}prec.1980.nc")
+ds_sample = xr.open_dataset(f"{dataset}prec_1980.nc")
 valid_coords = valid_crd.valid_lat_lon(ds_sample)
 
 
@@ -77,8 +78,8 @@ if num == 'all':
                                       lon=xr.DataArray(valid_coords[:, 1], dims='points'),
                                       method='nearest').values
 else:
-    elev_data = elev['elevation'].sel(lat=xr.DataArray(valid_coords[:num, 0], dims='points'),
-                                 lon=xr.DataArray(valid_coords[:num, 1], dims='points'),
+    elev_data = elev['elevation'].sel(lat=xr.DataArray(valid_coords[slice:num, 0], dims='points'),
+                                 lon=xr.DataArray(valid_coords[slice:num, 1], dims='points'),
                                  method='nearest').values
 
 pathx = clim_model + noise_type
@@ -105,6 +106,8 @@ else:
     y = process_data(dataset, period, valid_coords, num, device, var='prec')
     torch.save(y, f'{dataset}QM_input/y{period}{num}.pt')
 
+x = x[:,slice:num]
+y = y[:,slice:num]
 
 x_in = x.unsqueeze(-1)
 
@@ -119,6 +122,7 @@ if 'wind' in seriesLst:
         torch.save(wind, f'{dataset}/wind/QM_input/wind{period}{num}.pt')
         wind = torch.tensor(wind)
 
+    wind = wind[:, slice:num]
     wind_tensor = wind.to(x.dtype).to(device)
     wind_tensor = wind_tensor.unsqueeze(-1)
     x_in = torch.cat((x_in, wind_tensor), dim=2)
@@ -178,13 +182,11 @@ nx = x_in.shape[-1] + attr_tensor.shape[-1]
 ## Choose model
 
 if model_type == 'SST':
-    model = QuantileMappingModel(nx=nx, ny=ny, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='ANN').to(device)
+    model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='ANN').to(device)
 elif model_type == 'FNO2d':
-    model = QuantileMappingModel(nx=nx, ny=ny, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='FNO2d').to(device)
+    model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='FNO2d').to(device)
 elif model_type == 'FNO1d':
-    model = QuantileMappingModel(nx=nx, ny=ny, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='FNO1d').to(device)
-elif model_type == 'Poly2':
-    model = QuantileMappingModel_Poly2(num_series=num_series, degree=degree, hidden_dim=64).to(device)
+    model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='FNO1d').to(device)
 
 if resume:
     state_dict = torch.load(f'{save_path}model_{testepoch}.pth', map_location=device, weights_only=True)
@@ -212,12 +214,14 @@ if train == 1:
             transformed_x = model(batch_x, batch_input_norm)
 
             # Compute the loss
-            dist_loss = distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=100)
+            dist_loss = distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000)
             kl_loss = kl_divergence_loss(transformed_x.T, batch_y.T, num_bins=100)
             rainy_loss = rainy_day_loss(transformed_x.T, batch_y.T)
+            ws_dist = wasserstein_distance_loss(transformed_x.T, batch_y.T)
 
-            loss = dist_loss + kl_loss + balance_loss * rainy_loss
+            # loss = dist_loss + kl_loss + balance_loss * rainy_loss
             # loss = dist_loss + balance_loss * rainy_loss
+            loss = dist_loss + ws_dist + balance_loss * rainy_loss
 
             # Backward pass and optimization
             optimizer.zero_grad()
@@ -243,7 +247,7 @@ if train == 1:
     plt.show()
 
 else:
-    model.load_state_dict(torch.load(f'{save_path}/model_{epochs}.pth', weights_only=True))
+    model.load_state_dict(torch.load(f'{save_path}/model_{testepoch}.pth', weights_only=True))
     model.eval()
     transformed_x = []
     x = []
@@ -270,9 +274,12 @@ else:
     transformed_x = torch.cat(transformed_x, dim=0).numpy().T
     x = torch.cat(x, dim=0).numpy().T
     y = torch.cat(y, dim=0).numpy().T
+    test_save_path = f'{save_path}/{testepoch}'
+    os.makedirs(test_save_path, exist_ok=True)
+
     torch.save(transformed_x, f'{save_path}/xt.pt')
-    torch.save(x, f'{save_path}/x.pt')
-    torch.save(y, f'{save_path}/y.pt')
+    torch.save(x, f'{test_save_path}/x.pt')
+    torch.save(y, f'{test_save_path}/y.pt')
     avg_improvement, individual_improvements = compare_distributions(transformed_x, x, y)
 
     quantile_rmse_model = torch.sqrt(distributional_loss_interpolated(torch.tensor(x), torch.tensor(y), device='cpu', num_quantiles=100))
@@ -297,25 +304,75 @@ else:
             0
             )
         
-        y[y==0] = np.nan
-        x[x==0] = np.nan
-        transformed_x[transformed_x==0] = np.nan
         
-        if 'W' in noise_type:
-            n = x - y
-            ln = x - transformed_x
-        elif 'R' in noise_type:
-            n = x/y
-            ln = x/transformed_x
-        else:
-            n = x - y
-            ln = x - transformed_x
+        # y[y==0] = np.nan
+        # x[x==0] = np.nan
+        # transformed_x[transformed_x==0] = np.nan
+        
+        # if 'W' in noise_type:
+        #     n = x - y
+        #     ln = x - transformed_x
+        # elif 'R' in noise_type:
+        #     n = x/y
+        #     ln = x/transformed_x
+        # else:
+        #     n = x - y
+        #     ln = x - transformed_x
 
         
-        # Simple plot
-        elev_broadcast = np.repeat(elev_data[np.newaxis, :], x.shape[0], axis=0)
-        data.log_plots_to_tensorboard(writer, y, x, transformed_x, elev_broadcast, n, ln, exp, epoch=0)
+        # # Simple plot
+        # elev_broadcast = np.repeat(elev_data[np.newaxis, :], x.shape[0], axis=0)
+        # data.log_plots_to_tensorboard(writer, y, x, transformed_x, elev_broadcast, n, ln, exp, epoch=0)
+        # writer.close()
+
+        ## comparing with benchmark
+        QM_debiased = torch.load(f'benchmark/QM_ibicus/{test_period}{num}.pt', weights_only=False)
+        x = np.expand_dims(x, axis=-1)
+        y = np.expand_dims(y, axis=-1)
+        transformed_x = np.expand_dims(transformed_x, axis=-1)
+        #ibicus plots
+        pr_metrics = [dry_days, wet_days, R10mm, R20mm]
+
+
+        pr_marginal_bias_data = marginal.calculate_marginal_bias(metrics = pr_metrics, 
+                                                                statistics = ['mean', 0.05, 0.95],
+                                                                percentage_or_absolute = 'percentage',
+                                                                obs = y,
+                                                                raw = x, 
+                                                                QM = QM_debiased,
+                                                                diffDownscale = transformed_x)
+
+        pr_marginal_bias_plot = marginal.plot_marginal_bias(variable = 'pr', 
+                                                            bias_df = pr_marginal_bias_data,
+                                                        remove_outliers = True,
+                                                        outlier_threshold_statistics = 10,
+                                                        metrics_title = 'Absolute bias [days / year]',
+                                                        statistics_title = 'Absolute bias [mm]')
+
+        pr_marginal_bias_plot.savefig(f'{test_save_path}/ibicus_fig.png')
+        writer.add_figure("Figure 1", pr_marginal_bias_plot, global_step=epochs)
+
+        spelllength_dry = dry_days.calculate_spell_length(minimum_length= 3, obs = y,
+                                                                raw = x, 
+                                                                QM = QM_debiased, 
+                                                                diffDownscale = transformed_x)
+
+        spatiotemporal_dry = dry_days.calculate_spatiotemporal_clusters(obs = y,
+                                                                raw = x, 
+                                                                QM = QM_debiased,
+                                                                diffDownscale = transformed_x)
+
+        spatial_dry = dry_days.calculate_spatial_extent(obs = y,
+                                                        raw = x, 
+                                                        QM = QM_debiased,
+                                                        diffDownscale = transformed_x)
+
+        spatiotemporal_fig = marginal.plot_spatiotemporal(data = [spelllength_dry, spatiotemporal_dry, spatial_dry])
+
+        spatiotemporal_fig.savefig(f'{test_save_path}/ibicus_fig1.png')
+        writer.add_figure("Figure 2", spatiotemporal_fig, global_step=epochs)
         writer.close()
+
 
 
     # best_ind, best_improv = max(enumerate(individual_improvements), key=lambda x: x[1])

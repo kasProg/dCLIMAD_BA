@@ -4,6 +4,7 @@ from scipy.interpolate import griddata
 import cftime
 import pandas as pd
 
+spatial_interp = True ## Set False to only do temporal interpolation
 
 def get_calendar_type(time_variable):
     """Retrieve the calendar type from the dataset's time variable"""
@@ -51,13 +52,13 @@ def interpolate_time_slice(slice_data, lat_A, lon_A, lat_B, lon_B):
     points = np.column_stack((lat_A_2d[valid_mask], lon_A_2d[valid_mask]))
     values = slice_data[valid_mask]
     lon_B_2d, lat_B_2d = np.meshgrid(lon_B, lat_B)
-    return griddata(points, values, (lat_B_2d, lon_B_2d), method='cubic')
+    return griddata(points, values, (lat_B_2d, lon_B_2d), method='nearest')
 
 ### Interpolating GFDL-ESM4 to Livneh crds
 
-for year in range(1983,1996):
+for year in range(1980,1996):
     prcp_ds = xr.open_dataset(f"/data/kas7897/GFDL-ESM4/pr_day_GFDL-ESM4_historical_r1i1p1f1_gr1_{year}_v1.1.nc")
-    ds_B = xr.open_dataset(f"/data/kas7897/Livneh/prec.{year}.nc")
+    ds_B = xr.open_dataset(f"/data/kas7897/Livneh/upscale_1by4/prec_{year}.nc")
 
     if isinstance(prcp_ds['time'].values[0], cftime.datetime):
         # Convert cftime to pandas datetime
@@ -65,12 +66,6 @@ for year in range(1983,1996):
 
         # Replace the time coordinate
         prcp_ds = prcp_ds.assign_coords(time=new_time)
-    # # Check if any time coordinate uses cftime
-    # uses_cftime = any(isinstance(prcp_ds[var].values[0], cftime.datetime)
-    #                   for var in prcp_ds.coords
-    #                   if prcp_ds[var].dtype == 'O')
-    # if uses_cftime:
-    #    prcp_ds = xr.decode_cf(prcp_ds)
 
     ## Bicubic interpolation
     lat_A = prcp_ds.lat.values
@@ -84,9 +79,6 @@ for year in range(1983,1996):
     lon_B = ds_B.lon.values
     time_B = ds_B.time.values
 
-
-
-
     # Find missing dates in prcp_ds
     missing_dates = find_missing_dates(time_A, time_B)
 
@@ -97,30 +89,44 @@ for year in range(1983,1996):
         time_A = np.insert(time_A, insert_idx, missing_date)
         prcp_A = np.insert(prcp_A, insert_idx, interpolated_day, axis=0)
 
-    # Create meshgrid for target coordinates
-    lon_mesh, lat_mesh = np.meshgrid(lon_B, lat_B)
-    prcp_B = np.zeros((len(time_B), len(lat_B), len(lon_B)))
+    if spatial_interp:
+        # Create meshgrid for target coordinates
+        lon_mesh, lat_mesh = np.meshgrid(lon_B, lat_B)
+        prcp_B = np.zeros((len(time_B), len(lat_B), len(lon_B)))
 
-    # Perform interpolation
-    for t in range(len(time_B)):
-        prcp_B[t] = interpolate_time_slice(prcp_A[t], lat_A, lon_A, lat_B, lon_B)
+        # Perform interpolation
+        for t in range(len(time_B)):
+            prcp_B[t] = interpolate_time_slice(prcp_A[t], lat_A, lon_A, lat_B, lon_B)
 
-    ds_C = xr.Dataset(
-        data_vars={
-            'prec': (['time', 'lat', 'lon'], prcp_B)
-        },
-        coords={
-            'time': time_B,
-            'lat': lat_B,
-            'lon': lon_B
-        }
-    )
+        ds_C = xr.Dataset(
+            data_vars={
+                'prec': (['time', 'lat', 'lon'], prcp_B)
+            },
+            coords={
+                'time': time_B,
+                'lat': lat_B,
+                'lon': lon_B
+            }
+        )
+        ds_C['prec'] = ds_C['prec'].where(ds_C['prec'] >= 0, 0)
+        ds_C['prec'] = ds_C['prec'].where(ds_B.prec == ds_B.prec, np.nan)
+
+    else:
+        ds_C = xr.Dataset(
+            data_vars={
+                'prec': (['time', 'lat', 'lon'], prcp_A)
+            },
+            coords={
+                'time': time_B,
+                'lat': lat_A,
+                'lon': lon_A
+            }
+        )
     # Add attributes if necessary
     # ds_C.prec.attrs = noisy_prcp_ds.prec.attrs
-    ds_C['prec'] = ds_C['prec'].where(ds_C['prec'] >= 0, 0)
-    ds_C['prec'] = ds_C['prec'].where(ds_B.prec == ds_B.prec, np.nan)
+    
 
     # Save the new dataset as a NetCDF file
-    ds_C.to_netcdf(f"/data/kas7897/GFDL-ESM4/livneh_bci/prec.{year}.nc")
+    ds_C.to_netcdf(f"/data/kas7897/GFDL-ESM4/livneh025d_interp/prec_{year}.nc")
     # noisy_prcp_ds.to_netcdf(f'/data/kas7897/Livneh/noisy_new/prec_{year}.nc')
     print(year)
