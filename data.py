@@ -49,11 +49,11 @@ def load_and_process_year(path, year, valid_coords, num, var):
 def process_data(path, train_period, valid_coords, num, device, var):
     with ThreadPoolExecutor() as executor:
         results = list(executor.map(load_and_process_year,
-                                    [path] * (train_period[1] - train_period[0]),  # Add path to argument list
-                                    range(train_period[0], train_period[1]),
-                                    [valid_coords] * (train_period[1] - train_period[0]),
-                                    [num] * (train_period[1] - train_period[0]),
-                                    [var] * (train_period[1] - train_period[0])))
+                                    [path] * (train_period[1] - train_period[0]+1),  # Add path to argument list
+                                    range(train_period[0], train_period[1]+1),
+                                    [valid_coords] * (train_period[1] - train_period[0]+1),
+                                    [num] * (train_period[1] - train_period[0]+1),
+                                    [var] * (train_period[1] - train_period[0]+1)))
 
     x_list = results
 
@@ -92,7 +92,7 @@ def getStatDic(flow_regime, attrLst=None, attrdata=None, seriesLst=None, seriesd
         for k in range(len(seriesLst)):
             var = seriesLst[k]
             if flow_regime == 0:
-                if var in ["prcp", "Precip", "runoff", "Runoff", "Runofferror", "noisy_prcp"]:
+                if var in ["prcp", "Precip", "runoff", "Runoff", "Runofferror", "noisy_prcp", 'pr']:
                     statDict[var] = calStatgamma(seriesdata[:, :, k])
                 else:
                     statDict[var] = calStat(seriesdata[:, :, k])
@@ -112,7 +112,7 @@ def transNormbyDic(x, varLst, staDic, toNorm, flow_regime):
     out = torch.zeros_like(x)
 
     special_vars = [
-        "prcp", "usgsFlow", "Precip", "runoff", "Runoff", "Runofferror", "noisy_prcp"
+        "prcp", "usgsFlow", "Precip", "runoff", "Runoff", "Runofferror", "noisy_prcp", 'pr'
     ]
 
     for k, var in enumerate(varLst):

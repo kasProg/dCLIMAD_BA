@@ -3,130 +3,111 @@ import numpy as np
 from scipy.interpolate import griddata
 import cftime
 import pandas as pd
+from helper import interpolate_time_slice, interpolate_missing_day, find_missing_dates, search_path
+
+######-----THIS INTERPOLATES CMIP6 CLIMATE DATA TO LIVNEH'S RESOLUTION-----######
 
 spatial_interp = True ## Set False to only do temporal interpolation
+time_interp = False
+### Interpolating Clim Models to Livneh crds
+models= {'access_cm2':'ACCESS-CM2'}
+variables = {'precipitation':'pr'}
+exps = {'historical':'historical', 'ssp2_4_5': 'ssp245'}
 
-def get_calendar_type(time_variable):
-    """Retrieve the calendar type from the dataset's time variable"""
-    if hasattr(time_variable, 'calendar'):
-        return time_variable.calendar
-    elif isinstance(time_variable.values[0], cftime.datetime):
-        return time_variable.values[0].calendar
-    else:
-        return 'standard'
+ref_livneh_path = f"/data/kas7897/Livneh/prec.1980.nc"
 
-def find_missing_dates(time_ds_A, time_ds_B):
-    """Find missing dates in prcp_ds (time_ds_A) compared to ds_B (time_ds_B)"""
-    missing_dates = np.setdiff1d(time_ds_B, time_ds_A)
-    return missing_dates
+for model in models:
+    for var in variables:
+        for exp in exps:
+            if exp == 'historical':
+                start_date, end_date = "19500101", "20141231"
+            else:
+                start_date, end_date = "20150101", "20991231"
 
-def get_time_units(time_variable):
-    """Retrieve the units from the time variable's attributes"""
-    if 'units' in time_variable.attrs:
-        return time_variable.attrs['units']
-    else:
-        # Default to a common unit system if not specified
-        return 'days since 1900-01-01'
+            clim_path_search= f"cmip6/{model}/{exp}/{var}/{variables[var]}_day_{models[model]}_{exps[exp]}_r1i1p1f1_*_{start_date}-{end_date}.nc"
+            clim_path = search_path(clim_path_search)
+            clim_ds = xr.open_dataset(clim_path)
 
-def interpolate_missing_day(prcp_data, time_A, missing_date):
-    """Interpolate missing day between the adjacent dates"""
-    # Create cftime objects for the previous and next day
-    previous_day = missing_date - np.timedelta64(1, 'D')
-    next_day = missing_date + np.timedelta64(1, 'D')
+            # for year in range(1980,1996):
+            ref_ds = xr.open_dataset(ref_livneh_path)
 
-    # Ensure the neighbors are in the available time data
-    prev_idx = np.where(time_A == previous_day)[0][0] if previous_day in time_A else None
-    next_idx = np.where(time_A == next_day)[0][0] if next_day in time_A else None
-
-    # If both neighbors exist, interpolate
-    if prev_idx is not None and next_idx is not None:
-        interpolated_day = (prcp_data[prev_idx] + prcp_data[next_idx]) / 2.0
-        return interpolated_day
-    else:
-        raise ValueError(f"Cannot interpolate for {missing_date}, missing neighbors.")
+            if var =='precipitation':
+                var_clim = clim_ds[variables[var]].values*86400 ##converting to mm/day
+            else:
+                var_clim = clim_ds[variables[var]].values
 
 
-def interpolate_time_slice(slice_data, lat_A, lon_A, lat_B, lon_B):
-    lon_A_2d, lat_A_2d = np.meshgrid(lon_A, lat_A)
-    valid_mask = ~np.isnan(slice_data)
-    points = np.column_stack((lat_A_2d[valid_mask], lon_A_2d[valid_mask]))
-    values = slice_data[valid_mask]
-    lon_B_2d, lat_B_2d = np.meshgrid(lon_B, lat_B)
-    return griddata(points, values, (lat_B_2d, lon_B_2d), method='nearest')
+            if time_interp:
+                if isinstance(clim_ds['time'].values[0], cftime.datetime):
+                    # Convert cftime to pandas datetime
+                    new_time = pd.to_datetime([t.strftime('%Y-%m-%d') for t in clim_ds['time'].values])
 
-### Interpolating GFDL-ESM4 to Livneh crds
+                    # Replace the time coordinate
+                    clim_ds = clim_ds.assign_coords(time=new_time)
+                    
+                # Find missing dates in clim_ds
+                missing_dates = find_missing_dates(time_clim, time_ref)
+                # Handle missing dates by interpolation
+                for missing_date in missing_dates:
+                    interpolated_day = interpolate_missing_day(var_clim, time_clim, missing_date)
+                    insert_idx = np.searchsorted(time_clim, missing_date)  # Find where to insert the missing date
+                    time_clim = np.insert(time_clim, insert_idx, missing_date)
+                    var_clim = np.insert(var_clim, insert_idx, interpolated_day, axis=0)
+            
+            ## Bicubic interpolation
+            lat_clim = clim_ds.lat.values
+            lon_clim = clim_ds.lon.values
+            time_clim = clim_ds.time.values
 
-for year in range(1980,1996):
-    prcp_ds = xr.open_dataset(f"/data/kas7897/GFDL-ESM4/pr_day_GFDL-ESM4_historical_r1i1p1f1_gr1_{year}_v1.1.nc")
-    ds_B = xr.open_dataset(f"/data/kas7897/Livneh/upscale_1by4/prec_{year}.nc")
+            
+            # Extract target lat and lon from file B
+            lat_ref = ref_ds.lat.values
+            lon_ref = ref_ds.lon.values
+            time_ref = ref_ds.time.values
+            
 
-    if isinstance(prcp_ds['time'].values[0], cftime.datetime):
-        # Convert cftime to pandas datetime
-        new_time = pd.to_datetime([t.strftime('%Y-%m-%d') for t in prcp_ds['time'].values])
+            if spatial_interp:
+                # Create meshgrid for target coordinates
+                lon_mesh, lat_mesh = np.meshgrid(lon_ref, lat_ref)
+                var_interp = np.zeros((len(time_clim), len(lat_ref), len(lon_ref)))
 
-        # Replace the time coordinate
-        prcp_ds = prcp_ds.assign_coords(time=new_time)
+                # Perform interpolation
+                for t in range(len(time_ref)):
+                    var_interp[t] = interpolate_time_slice(var_clim[t], lat_clim, lon_clim, lat_ref, lon_ref)
 
-    ## Bicubic interpolation
-    lat_A = prcp_ds.lat.values
-    lon_A = prcp_ds.lon.values
-    time_A = prcp_ds.time.values
+                ds_interp = xr.Dataset(
+                    data_vars={
+                        variables[var]: (['time', 'lat', 'lon'], var_interp)
+                    },
+                    coords={
+                        'time': time_clim,
+                        'lat': lat_ref,
+                        'lon': lon_ref
+                    }
+                )
+                if var == 'precipitation':
+                    ds_interp[variables[var]] = ds_interp[variables[var]].where(ds_interp[variables[var]] >= 0, 0)
+                    ref_ds_aligned = ref_ds.reindex(time=ds_interp['time'], method='nearest')
+                    ds_interp[variables[var]] = ds_interp[variables[var]].where(ref_ds_aligned.prec == ref_ds_aligned.prec, np.nan)
 
-    prcp_A = prcp_ds.pr.values*86400 ##converting to mm/day
+            else:
+                ds_interp = xr.Dataset(
+                    data_vars={
+                        variables[var]: (['time', 'lat', 'lon'], var_clim)
+                    },
+                    coords={
+                        'time': time_clim,
+                        'lat': lat_clim,
+                        'lon': lon_clim
+                    }
+                )
 
-    # Extract target lat and lon from file B
-    lat_B = ds_B.lat.values
-    lon_B = ds_B.lon.values
-    time_B = ds_B.time.values
+            # Add attributes if necessary
+            ds_interp.attrs = clim_ds.attrs
+            
 
-    # Find missing dates in prcp_ds
-    missing_dates = find_missing_dates(time_A, time_B)
-
-    # Handle missing dates by interpolation
-    for missing_date in missing_dates:
-        interpolated_day = interpolate_missing_day(prcp_A, time_A, missing_date)
-        insert_idx = np.searchsorted(time_A, missing_date)  # Find where to insert the missing date
-        time_A = np.insert(time_A, insert_idx, missing_date)
-        prcp_A = np.insert(prcp_A, insert_idx, interpolated_day, axis=0)
-
-    if spatial_interp:
-        # Create meshgrid for target coordinates
-        lon_mesh, lat_mesh = np.meshgrid(lon_B, lat_B)
-        prcp_B = np.zeros((len(time_B), len(lat_B), len(lon_B)))
-
-        # Perform interpolation
-        for t in range(len(time_B)):
-            prcp_B[t] = interpolate_time_slice(prcp_A[t], lat_A, lon_A, lat_B, lon_B)
-
-        ds_C = xr.Dataset(
-            data_vars={
-                'prec': (['time', 'lat', 'lon'], prcp_B)
-            },
-            coords={
-                'time': time_B,
-                'lat': lat_B,
-                'lon': lon_B
-            }
-        )
-        ds_C['prec'] = ds_C['prec'].where(ds_C['prec'] >= 0, 0)
-        ds_C['prec'] = ds_C['prec'].where(ds_B.prec == ds_B.prec, np.nan)
-
-    else:
-        ds_C = xr.Dataset(
-            data_vars={
-                'prec': (['time', 'lat', 'lon'], prcp_A)
-            },
-            coords={
-                'time': time_B,
-                'lat': lat_A,
-                'lon': lon_A
-            }
-        )
-    # Add attributes if necessary
-    # ds_C.prec.attrs = noisy_prcp_ds.prec.attrs
-    
-
-    # Save the new dataset as a NetCDF file
-    ds_C.to_netcdf(f"/data/kas7897/GFDL-ESM4/livneh025d_interp/prec_{year}.nc")
-    # noisy_prcp_ds.to_netcdf(f'/data/kas7897/Livneh/noisy_new/prec_{year}.nc')
-    print(year)
+            # Save the new dataset as a NetCDF file
+            ds_interp.to_netcdf(f"/data/kas7897/diffDownscale/cmip6/{model}/{exp}/{var}/livneh_grid.nc")
+            
+            # noisy_clim_ds.to_netcdf(f'/data/kas7897/Livneh/noisy_new/prec_{year}.nc')
+            print(f'{model}_{var}_{exps} Yo Killed!')

@@ -24,6 +24,48 @@ def valid_lat_lon(ds, var_name='prec'):
 
     return valid_coords
 
+def reconstruct_nc(x_values, valid_coords, time_values, var):
+    """
+    Reform an xarray dataset with (time, lat, lon) dimensions and save as NetCDF.
+
+    Parameters:
+    - x_values: 2D NumPy array of shape (time, points), filtered values.
+    - valid_coords: Nx2 NumPy array containing valid (lat, lon) pairs.
+    - time_values: 1D NumPy array containing time values.
+    - output_nc_path: Path to save the NetCDF file.
+    """
+
+    # Extract unique lat/lon values to create a grid
+    unique_lats = np.sort(np.unique(valid_coords[:, 0]))
+    unique_lons = np.sort(np.unique(valid_coords[:, 1]))
+
+    # Initialize an empty 3D array (time, lat, lon) filled with NaNs
+    x_reshaped = np.full((len(time_values), len(unique_lats), len(unique_lons)), np.nan)
+
+    # Create lookup dictionaries to map lat/lon values to array indices
+    lat_to_idx = {lat: i for i, lat in enumerate(unique_lats)}
+    lon_to_idx = {lon: i for i, lon in enumerate(unique_lons)}
+
+    # Fill the 3D array with x_values based on valid_coords
+    for point_idx, (lat, lon) in enumerate(valid_coords):
+        lat_idx = lat_to_idx[lat]
+        lon_idx = lon_to_idx[lon]
+        x_reshaped[:, lat_idx, lon_idx] = x_values[:, point_idx]  # Assign values at correct positions
+
+    # Create an xarray Dataset
+    ds_filtered = xr.Dataset(
+        {
+            var : (["time", "lat", "lon"], x_reshaped)  # Define variable with correct dimensions
+        },
+        coords={
+            "time": ("time", time_values),
+            "lat": ("lat", unique_lats),
+            "lon": ("lon", unique_lons)
+        }
+    )
+
+    return ds_filtered
+
 
 ## To test files
 #

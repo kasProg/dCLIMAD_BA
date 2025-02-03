@@ -7,27 +7,29 @@ import numpy as np
 from scipy.interpolate import griddata
 
 
+#######-------THIS CODE INTERPOLATES (LINEARLY) ELEVATION TIFF FILE TO NC FILE PROVIDED--------########
+
 # Function to convert longitudes from 0-360 to -180 to 180
 def convert_lon_to_neg180(lons):
     return np.where(lons > 180, lons - 360, lons)
 
-clim = 'noresm2_mm'
+clim = 'mri_esm2_0'
 # Step 1: Extract lat/lon from the precipitation NetCDF file and convert longitude
-precip_nc_file = f'/data/kas7897/data/ibicus_GMD_submission/data/pr/{clim}/obs_hist.nc'
+precip_nc_file = f'/data/kas7897/diffDownscale/cmip6/{clim}/historical/precipitation/clipped_US.nc'
 
 #save_path
-elevation_nc_file = f'/data/kas7897/data/ibicus_GMD_submission/data/pr/{clim}/elev.nc'
+elevation_nc_file = f'/data/kas7897/diffDownscale/cmip6/{clim}/elev.nc'
 
 with nc.Dataset(precip_nc_file, 'r') as precip_ds:
-    lats = precip_ds.variables['latitude'][:]
-    lons = precip_ds.variables['longitude'][:]
+    lats = precip_ds.variables['lat'][:]
+    lons = precip_ds.variables['lon'][:]
 
     # Convert longitudes from 0-360 to -180 to 180 for interpolation
     lons_converted = convert_lon_to_neg180(lons)
 
 # Step 2: Read the elevation data from the TIFF file
-# tiff_file = "/data/wxt42/raw_data/Topography/DEM_Attr/mean_elev.tif"
-tiff_file = "/data/kas7897/diffDownscale/elevation_1KMmn_GMTEDmn_with_Antarctica_from_World_e-Atlas.tif"
+tiff_file = "/data/wxt42/raw_data/Topography/DEM_Attr/mean_elev.tif"
+# tiff_file = "/data/kas7897/diffDownscale/elevation_1KMmn_GMTEDmn_with_Antarctica_from_World_e-Atlas.tif"
 with rasterio.open(tiff_file) as elevation_ds:
     elevation_data = elevation_ds.read(1)  # Read the first band (assuming it's elevation)
     tiff_transform = elevation_ds.transform

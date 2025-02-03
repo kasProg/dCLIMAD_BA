@@ -23,27 +23,27 @@ from ibicus.evaluate.metrics import *
 
 torch.manual_seed(42)
 device = torch.device('cuda:0')
-logging = True
+logging = False
 
-dataset = '/data/kas7897/Livneh/upscale_1by4/'
-clim_model = '/data/kas7897/GFDL-ESM4/'
+dataset = '/data/kas7897/Livneh/upscale_1by4'
+clim_model = '/data/kas7897/Livneh/'
 
-clim = 'GFDL-ESM4'
+clim = 'livneh'
 ref = 'livneh'
 elev_path = '/data/kas7897/diffDownscale/elev_Livneh_025d.nc'
 ##if running synthetic case
-# noise_type = 'R5noisy001d'
-noise_type = 'livneh025d_interp'
+noise_type = 'R5noisy001d'
+# noise_type = 'livneh025d_interp'
 # noise_type = 'upscale_1by4_bci'
 train_period = [1980, 1990]
 # test_period = [1980, 1990]ahh
 test_period = [1991, 1995]
-train = 1 # training = 1; else test
+train = 0 # training = 1; else test
 seriesLst = ['noisy_prcp']
 # seriesLst = ['noisy_prcp']
 attrLst = ['elev']
 epochs = 600
-testepoch = 0
+testepoch = 600
 
 # model params
 model_type = 'SST' #[SST, Poly2]
@@ -58,7 +58,7 @@ slice = 0 #for spatial test; set 0 otherwise
 batch_size = 100
 
 if logging:
-    exp = f'GFDL-ESM4/ANN_mod19_{layers}Layers_{degree}degree'
+    exp = f'{noise_type}/ANN_mod19_{layers}Layers_{degree}degree'
     writer = SummaryWriter(f"runs/{exp}")
 
 ###-------- Developer section here -----------###

@@ -17,7 +17,8 @@ class QuantileMappingModel(nn.Module):
         self.degree = degree
 
         # Automatically calculate ny: degree scales + 1 shift + 1 threshold
-        ny = degree + 1  
+        ny = degree + 1 
+        self.model_type = modelType 
 
         if modelType == 'ANN':
             self.transform_generator = self.build_transform_generator(nx, hidden_dim, ny, num_layers)
@@ -26,7 +27,8 @@ class QuantileMappingModel(nn.Module):
         elif modelType == 'FNO1d':
             self.transform_generator = FNO1d(modes=16, width=hidden_dim, input_dim=nx, output_dim=ny)
         elif modelType == 'LSTM':
-            self.lstm = CudnnLstmModel(nx=nx, ny=ny, hiddenSize=hidden_dim, dr=0.5)
+            self.lstm = nn.LSTM(input_size=nx, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True)
+            self.fc = nn.Linear(hidden_dim, ny) 
 
     def build_transform_generator(self, nx, hidden_dim, ny, num_layers):
         layers = []
@@ -49,7 +51,13 @@ class QuantileMappingModel(nn.Module):
 
     def forward(self, x, input_tensor):
         # Generate transformation parameters
-        params = self.transform_generator(input_tensor)
+        if self.model_type == "LSTM":
+            # LSTM forward pass
+            lstm_out, _ = self.lstm(input_tensor)  # Output shape: [batch_size, seq_len, hidden_dim]
+            # Generate transformation parameters
+            params = self.fc(lstm_out)  # Output shape: [batch_size, seq_len, ny]
+        else:
+            params = self.transform_generator(input_tensor)
 
         # Extract scale and shift parameters dynamically based on degree
         scales = [torch.exp(params[:, :, i]) for i in range(self.degree)]  # Ensure positive scaling

@@ -23,10 +23,6 @@ import os
 ###-----The code is currently accustomed to Livneh Data format ----###
 clim = sys.argv[1]  # e.g., 'noresm2_mm', 'ipsl_cm6a_lr'
 gpu_id = sys.argv[2]  # e.g., 0, 1, 2, 3, etc.
-mod = sys.argv[3]  # e.g., 0, 1, 2, 3, etc.
-ep = sys.argv[4]  # e.g., 0, 1, 2, 3, etc.
-
-
 
 torch.manual_seed(42)
 device = torch.device(f'cuda:{gpu_id}')
@@ -45,40 +41,42 @@ elev_path = f'/data/kas7897/data/ibicus_GMD_submission/data/pr/{clim}/elev.nc'
 noise_type = clim
 ref = 'era5'
 # noise_type = 'upscale_1by4_bci'
-train_period = [1980, 1990]
+train_period = [1959, 1989]
 # test_period = [1980, 1990]ahh
-test_period = [1991, 1995]
-train = 0 # training = 1; else test
+test_period = [1990, 2005]
+train = 1 # training = 1; else test
 seriesLst = ['noisy_prcp']
 # seriesLst = ['noisy_prcp']
 attrLst = ['elev']
 epochs = 200
-testepoch = ep
+testepoch = 0
 
 if train!=1:
     dataset = f'/data/kas7897/data/ibicus_GMD_submission/data/pr/{clim}/obs_validate.nc'
     clim_model = f'/data/kas7897/data/ibicus_GMD_submission/data/pr/{clim}/raw_val.nc'
 
 # model params
-model_type = 'SST' #[SST, Poly2]
+model_type = 'LSTM' #[SST, Poly2]
 resume = False
 degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
-emph_quantile = None
+emph_quantile = 0.5
+w1=1
+w2=0
 # ny = 4 # number of params
 
 ##number of coordinates; if all then set to 'all'
 num = 'all'
 slice = 0 #for spatial test; set 0 otherwise
-batch_size = 100
+batch_size = 50
 
 if logging:
-    exp = f'{clim}/ANN_{layers}Layers_{degree}degree_mod{mod}'
+    exp = f'{clim}/{model_type}_{layers}Layers_{degree}degree_mod2'
     writer = SummaryWriter(f"runs/{exp}")
 
 ###-------- Developer section here -----------###
 
-save_path = f'models/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_mod{mod}/{num}/{train_period[0]}_{train_period[1]}/{noise_type}/'
+save_path = f'models/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_mod2/{num}/{train_period[0]}_{train_period[1]}/{noise_type}/'
 os.makedirs(save_path, exist_ok=True)
 
 #extracting valid lat-lon pairs with non-nan prcp
@@ -214,10 +212,9 @@ nx = x_in.shape[-1] + attr_tensor.shape[-1]
 
 if model_type == 'SST':
     model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='ANN').to(device)
-elif model_type == 'FNO2d':
-    model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='FNO2d').to(device)
-elif model_type == 'FNO1d':
-    model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='FNO1d').to(device)
+else:
+    model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
+
 
 if resume:
     state_dict = torch.load(f'{save_path}model_{testepoch}.pth', map_location=device, weights_only=True)
@@ -250,8 +247,8 @@ if train == 1:
             # Compute the loss
             # kl_loss = 0.699*kl_divergence_loss(transformed_x.T, batch_y.T, num_bins=1000)
 
-            dist_loss = 0.999*distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)
-            rainy_loss = 0.001*rainy_day_loss(transformed_x.T, batch_y.T)
+            dist_loss = w1*distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)
+            rainy_loss = w2*rainy_day_loss(transformed_x.T, batch_y.T)
             # ws_dist = 0.5*wasserstein_distance_loss(transformed_x.T, batch_y.T)
             # trendloss = trend_loss(transformed_x.T, batch_x.T, device)
             loss = dist_loss + rainy_loss 
@@ -381,15 +378,16 @@ else:
         x = np.expand_dims(x, axis=-1)
         y = np.expand_dims(y, axis=-1)
         transformed_x = np.expand_dims(transformed_x, axis=-1)
-        #ibicus plots
-        pr_metrics = [dry_days, wet_days, R10mm, R20mm]
 
         x = x/86400
         y = y/86400
         transformed_x = transformed_x/86400
+        #ibicus plots
+        pr_metrics = [dry_days, wet_days, R10mm, R20mm]
+
 
         pr_marginal_bias_data = marginal.calculate_marginal_bias(metrics = pr_metrics, 
-                                                                statistics = ['mean', 0.95],
+                                                                statistics = ['mean', 0.05, 0.95],
                                                                 percentage_or_absolute = 'percentage',
                                                                 obs = y,
                                                                 raw = x, 
@@ -400,8 +398,8 @@ else:
                                                             bias_df = pr_marginal_bias_data,
                                                         remove_outliers = True,
                                                         outlier_threshold_statistics = 10,
-                                                        metrics_title = 'Percentage bias [days]',
-                                                        statistics_title = 'Percentage bias')
+                                                        metrics_title = 'Absolute bias [days / year]',
+                                                        statistics_title = 'Absolute bias [mm]')
 
         pr_marginal_bias_plot.savefig(f'{test_save_path}/ibicus_fig.png')
         writer.add_figure("Figure 1", pr_marginal_bias_plot, global_step=epochs)
@@ -425,18 +423,5 @@ else:
 
         spatiotemporal_fig.savefig(f'{test_save_path}/ibicus_fig1.png')
         writer.add_figure("Figure 2", spatiotemporal_fig, global_step=epochs)
-
-
-        # tas_trend_bias_data = trend.calculate_future_trend_bias(statistics = ["mean", 0.05, 0.95], 
-        #                                                 trend_type = 'additive',
-        #                                           raw_validate = tas_cm_validate, raw_future = tas_cm_future,
-        #                                                 metrics = tas_metrics,
-        #                                           QM = [tas_val_debiased_QM, tas_fut_debiased_QM],
-        #                                                 QDM = [tas_val_debiased_QM, tas_fut_debiased_QDM],
-        #                                           ISIMIP = [tas_val_debiased_ISIMIP, tas_fut_debiased_ISIMIP],
-        #                                           CDFT = [tas_val_debiased_CDFT, tas_fut_debiased_CDFT])
-
-        # tas_trend_plot = trend.plot_future_trend_bias_boxplot(variable ='tas', bias_df = tas_trend_bias_data,                                                         remove_outliers = True,
-        #                                                         outlier_threshold = 500)
         writer.close()
-        
+   
