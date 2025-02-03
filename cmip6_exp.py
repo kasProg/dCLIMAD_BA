@@ -7,12 +7,12 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 import pandas as pd
 import numpy as np
-import valid_crd
-from model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
-from loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
-from data import process_data, getStatDic
+import data.valid_crd as valid_crd
+from model.model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
+from model.loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
+from data.data import process_data, getStatDic
 from torch.utils.data import DataLoader, TensorDataset
-import data
+import data.data as data
 from sklearn.preprocessing import StandardScaler
 from ibicus.evaluate import assumptions, correlation, marginal, multivariate, trend
 from ibicus.evaluate.metrics import *
@@ -78,7 +78,7 @@ if train==1:
 else:
     period = test_period
 
-save_path = f'models/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}/{num}/{train_period[0]}_{train_period[1]}/'
+save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}/{num}/{train_period[0]}_{train_period[1]}/'
 
 if train==0:
     model_save_path = save_path

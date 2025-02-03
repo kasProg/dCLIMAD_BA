@@ -4,7 +4,7 @@ import cftime
 import numpy as np
 import pandas as pd
 import json
-from helper import find_missing_dates, interpolate_missing_day
+from data.helper import find_missing_dates, interpolate_missing_day
 
 
 #######--------THIS CODE COMPUTES ENSEMBLE OF CLIMATE MODELS (RIGHT NOW MODIFIED FOR diffDOWNSCALE)----------#########

@@ -4,7 +4,7 @@ import numpy as np
 import os
 import cftime
 import pandas as pd
-from helper import interpolate_time_slice
+from data.helper import interpolate_time_slice
 
 
 ########------THIS CODE REGRIDS UNSPLIT-LIVNEH TO CLIMATE-MODEL RESOLUTION-------##########

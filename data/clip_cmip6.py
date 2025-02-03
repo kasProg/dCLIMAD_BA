@@ -7,7 +7,7 @@ import warnings
 import numpy as np
 import regionmask
 import glob
-from helper import clip_netcdf, search_path
+from data.helper import clip_netcdf, search_path
 
 #######-------THIS CODE CLIPS CLIMATE-MODELS TO CONUS SHAPEFILE-------#######
 

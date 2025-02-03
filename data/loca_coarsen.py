@@ -3,7 +3,7 @@ import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-from helper import interpolate_time_slice, clip_netcdf, search_path
+from data.helper import interpolate_time_slice, clip_netcdf, search_path
 
 ######------THIS CODE INTERPOLATES (COARSENS) LOCA2 TO CLIMATE RESOLUTION AND CLIPS INTO CONUS REGION--------#######
 

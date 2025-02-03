@@ -4,8 +4,8 @@ import torch.nn as nn
 from torch.nn import Parameter
 import math
 import torch.nn.functional as F
-from lstm import CudnnLstmModel
-from fno import FNO2d, FNO1d
+from model.lstm import CudnnLstmModel
+from model.fno import FNO2d, FNO1d
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

@@ -1,8 +1,8 @@
 import torch
 import os
-from loss import compare_distributions, rmse, distributional_loss_interpolated
+from model.loss import compare_distributions, rmse, distributional_loss_interpolated
 import matplotlib.pyplot as plt
-import valid_crd
+import data.valid_crd as valid_crd
 import xarray as xr
 from scipy.stats import norm, laplace, gamma, beta
 

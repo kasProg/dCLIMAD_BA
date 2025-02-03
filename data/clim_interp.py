@@ -3,7 +3,7 @@ import numpy as np
 from scipy.interpolate import griddata
 import cftime
 import pandas as pd
-from helper import interpolate_time_slice, interpolate_missing_day, find_missing_dates, search_path
+from data.helper import interpolate_time_slice, interpolate_missing_day, find_missing_dates, search_path
 
 ######-----THIS INTERPOLATES CMIP6 CLIMATE DATA TO LIVNEH'S RESOLUTION-----######
 
