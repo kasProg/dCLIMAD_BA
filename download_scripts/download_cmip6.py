@@ -62,13 +62,14 @@ year_historical = [
     ]
 
 
-models= ['mri_esm2_0']
+models= ['access_cm2', 'mri_esm2_0', 'gfdl_esm4', 'ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr']
 variables = ['precipitation', 'near_surface_air_temperature']
-experiments = ['historical','ssp2_4_5']
+experiments = ['historical','ssp5_8_5']
 
 
 # Error log file
-error_log_file = "/data/kas7897/diffDownscale/cmip6/error_log.txt"
+error_log_file = "/pscratch/sd/k/kas7897/cmip6/error_log.txt"
+os.makedirs(os.path.dirname(error_log_file), exist_ok=True)
 
 # Open error log file in append mode
 with open(error_log_file, "a") as error_log:
@@ -85,7 +86,7 @@ with open(error_log_file, "a") as error_log:
             for variable in variables:
                 try:
                     # Create folder for storing data
-                    folder_path = f'/data/kas7897/diffDownscale/cmip6/{model}/{experiment}/{variable}/'
+                    folder_path = f'/pscratch/sd/k/kas7897/diffDownscale/cmip6/{model}/{experiment}/{variable}/'
                     os.makedirs(folder_path, exist_ok=True)
 
                     # Define dataset and request
