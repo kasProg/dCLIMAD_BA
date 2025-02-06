@@ -62,9 +62,12 @@ year_historical = [
     ]
 
 
-models= ['access_cm2', 'mri_esm2_0', 'gfdl_esm4', 'ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr']
-variables = ['precipitation', 'near_surface_air_temperature']
-experiments = ['historical','ssp5_8_5']
+#models= ['access_cm2', 'mri_esm2_0', 'gfdl_esm4', 'ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr']
+models= ['ipsl_cm6a_lr']
+#variables = ['precipitation', 'near_surface_air_temperature']
+variables = ['precipitation']
+
+experiments = ['historical']
 
 
 # Error log file
@@ -78,15 +81,13 @@ with open(error_log_file, "a") as error_log:
             # Determine year range based on experiment
             if experiment == 'historical':
                 year = year_historical
-            elif experiment == 'ssp2_4_5':
-                year = year_ssp245
             else:
-                raise ValueError(f"Unknown experiment: {experiment}")
+                year = year_ssp245
 
             for variable in variables:
                 try:
                     # Create folder for storing data
-                    folder_path = f'/pscratch/sd/k/kas7897/diffDownscale/cmip6/{model}/{experiment}/{variable}/'
+                    folder_path = f'/pscratch/sd/k/kas7897/cmip6/{model}/{experiment}/{variable}/'
                     os.makedirs(folder_path, exist_ok=True)
 
                     # Define dataset and request

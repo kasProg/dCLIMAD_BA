@@ -18,6 +18,8 @@ def download_files_within_year_range(url, output_dir, start_year, end_year, file
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    # Define error log file
+    error_log_file = os.path.join(output_dir, "log_error.txt")
     # Get the HTML content of the webpage
     response = requests.get(url)
     response.raise_for_status()
@@ -32,11 +34,20 @@ def download_files_within_year_range(url, output_dir, start_year, end_year, file
         links = [link for link in links if pattern.search(link)]
     
     # Filter links by year range
-    year_pattern = re.compile(r'\b(19[8-9]\d|20[0-1]\d|2014)\b')  # Matches years 1980-2014
-    filtered_links = [
-        link for link in links if year_pattern.search(link)
-        and start_year <= int(year_pattern.search(link).group()) <= end_year
-    ]
+    year_pattern = re.compile(r'\b(19\d{2}|20\d{2}|21\d{2})\b') # Matches years from 1900 to 2199
+
+    filtered_links = []
+    with open(error_log_file, "a") as error_log:
+        for link in links:
+            match = year_pattern.search(link)
+            if match:
+                year = int(match.group())
+                if start_year <= year <= end_year:
+                    filtered_links.append(link)
+                else:
+                    error_log.write(f"Skipping {link}: Year {year} out of range {start_year}-{end_year}\n")
+            else:
+                error_log.write(f"Skipping {link}: No recognizable year in filename\n")
 
     # Download each file using wget
     for link in filtered_links:
@@ -46,17 +57,21 @@ def download_files_within_year_range(url, output_dir, start_year, end_year, file
         try:
             subprocess.run(['wget', '-P', output_dir, file_url], check=True)
         except subprocess.CalledProcessError as e:
-            print(f"Failed to download {file_url}: {e}")
+            error_message = f"Failed to download {file_url}: {e}\n"
+            print(error_message)
+            with open(error_log_file, "a") as error_log:
+                error_log.write(error_message)
+            
 
 if __name__ == "__main__":
     # URL of the webpage containing file links
     webpage_url = "https://cirrus.ucsd.edu/~pierce/nonsplit_precip/precip/?C=N;O=A"
 
     # Directory to save the downloaded files
-    output_directory = "/data/kas7897/Livneh/unsplit"
+    output_directory = "/pscratch/sd/k/kas7897/Livneh/unsplit/precipitation"
 
     # Year range for filtering files
-    start_year = 1981
+    start_year = 1950
     end_year = 2014
 
     # File extensions to download (e.g., '.nc')
