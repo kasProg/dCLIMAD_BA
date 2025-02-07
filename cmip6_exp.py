@@ -20,26 +20,26 @@ from ibicus.evaluate.metrics import *
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
 torch.manual_seed(42)
-device = torch.device('cuda:2')
+device = torch.device('cuda:0')
 logging = True
-
+cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 clim = 'miroc6'
-clim_model = f'/data/kas7897/diffDownscale/cmip6/{clim}/historical/precipitation/clipped_US.nc'
-dataset = f'/data/kas7897/Livneh/unsplit/{clim}/'
+clim_model = f'{cmip6_dir}/{clim}/historical/precipitation/clipped_US.nc'
+dataset = f'/pscratch/sd/k/kas7897/Livneh/unsplit/precipitation/{clim}/'
 
 ### FOR TREND ANALYSIS
-scenario = 'ssp2_4_5'
-future_path = f'/data/kas7897/diffDownscale/cmip6/{clim}/{scenario}/precipitation/clipped_US.nc'
-trend_future_period = [2015, 2044]
+scenario = 'ssp5_8_5'
+future_path = f'{cmip6_dir}/{clim}/{scenario}/precipitation/clipped_US.nc'
+trend_future_period = [2075, 2099]
 
-elev_path = f'/data/kas7897/diffDownscale/cmip6/{clim}/elev.nc'
+elev_path = f'{cmip6_dir}/{clim}/elev.nc'
 
 noise_type = clim
 clim_var = 'pr'
 ref_var = {'pr': 'prec'}
 ref = 'livneh'
-train_period = [1980, 1990]
-test_period = [1991, 2000]
+train_period = [1950, 1980]
+test_period = [1991, 2014]
 
 train = 0 # training = 1; else test
 seriesLst = ['pr']
@@ -378,7 +378,7 @@ else:
     
     if benchmarking:
         print("processing LOCA for benchmarking...")
-        loca = xr.open_dataset(f'/data/kas7897/diffDownscale/cmip6/{clim}/historical/precipitation/loca/coarse_USclip.nc')
+        loca = xr.open_dataset(f'{cmip6_dir}/{clim}/historical/precipitation/loca/coarse_USclip.nc')
         loca = loca[clim_var].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
                                             lon=xr.DataArray(valid_coords[:, 1], dims='points'),
                                             method='nearest')
@@ -448,14 +448,16 @@ else:
 
         if trend_analysis:
 
-            QM_bench_future = f'benchmark/QM_parameteric_ibicus/conus/{clim}-{ref}/{scenario}_{trend_future_period}_{num}.pt'
+            QM_bench_future = f'benchmark/QM_parameteric_ibicus/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}_{num}.pt'
             QM_debiased_future = torch.load(QM_bench_future, weights_only=False)
 
-            loca_future = xr.open_dataset(f'/data/kas7897/diffDownscale/cmip6/{clim}/{scenario}/precipitation/loca/coarse_USclip.nc')
+            loca_future = xr.open_dataset(f'{cmip6_dir}/{clim}/{scenario}/precipitation/loca/coarse_USclip.nc')
             loca_future = loca_future[clim_var].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
                                             lon=xr.DataArray(valid_coords[:, 1], dims='points'),
                                             method='nearest')
             loca_future = loca_future.sel(time =slice(f'{trend_future_period[0]}', f'{trend_future_period[1]}')).values
+            # loca_future = loca_future.sel(time =slice(f'{trend_future_period[0]}', '2085')).values
+
 
 
             loca_future = np.expand_dims(loca_future, axis=-1)

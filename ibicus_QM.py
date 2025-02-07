@@ -23,20 +23,20 @@ model_type = 'ANN'
 layers = 4
 degree = 1
 num = 'all'
-hist_period = [1980, 1990]
-future_period = [1991, 2000]
+hist_period = [1950, 1980]
+future_period = [1991, 2014]
 testepoch = 40
 quantile = 0.5
 clim_var = 'pr'
-exp_path = f'models/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{quantile}/{num}/{hist_period[0]}_{hist_period[1]}'
+exp_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{quantile}/{num}/{hist_period[0]}_{hist_period[1]}'
 
 ### FOR TREND ANALYSIS
-scenario = 'ssp2_4_5'
-trend_future_period = [2015, 2044]
-future_path = f'/data/kas7897/diffDownscale/cmip6/{clim}/{scenario}/precipitation/clipped_US.nc'
+scenario = 'ssp5_8_5'
+trend_future_period = [2075, 2099]
+future_path = f'/pscratch/sd/k/kas7897/cmip6/{clim}/{scenario}/precipitation/clipped_US.nc'
 trend_analysis = True
 
-dataset = f'/data/kas7897/Livneh/unsplit/{clim}/'
+dataset = f'/pscratch/sd/k/kas7897/Livneh/unsplit/precipitation/{clim}/'
 
 
 hist_time = pd.date_range(start=f"{hist_period[0]}-01-01", end=f"{hist_period[1]}-12-31", freq="D").to_numpy()
@@ -61,8 +61,8 @@ future_ref = target_reference.unsqueeze(-1).cpu().numpy()/86400
 hist_prcp = hist_model.unsqueeze(-1).cpu().numpy()/86400
 future_prcp = future_model.unsqueeze(-1).cpu().numpy()/86400
 
-# debiased_future = debiaser.apply(ref_prcp, hist_prcp, future_prcp, time_obs = hist_time, time_cm_hist = hist_time, time_cm_future = future_time)
-# torch.save(debiased_future*86400, f'{save_path}/{hist_period}_{future_period}{num}.pt')
+debiased_future = debiaser.apply(ref_prcp, hist_prcp, future_prcp, time_obs = hist_time, time_cm_hist = hist_time, time_cm_future = future_time)
+torch.save(debiased_future*86400, f'{save_path}/{hist_period}_{future_period}{num}.pt')
 
 if trend_analysis:
     ds_sample = xr.open_dataset(f"{dataset}prec.1980.nc")
@@ -78,4 +78,4 @@ if trend_analysis:
     x_future = np.expand_dims(x_future, axis=-1)
 
     debiased_future = debiaser.apply(ref_prcp, hist_prcp, x_future, time_obs = hist_time, time_cm_hist = hist_time, time_cm_future = future_time)
-    torch.save(debiased_future*86400, f'{save_path}/{scenario}_{trend_future_period}_{num}.pt')
+    torch.save(debiased_future*86400, f'{save_path}/{hist_period}_{scenario}_{trend_future_period}_{num}.pt')

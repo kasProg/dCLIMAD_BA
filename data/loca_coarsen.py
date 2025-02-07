@@ -3,11 +3,9 @@ import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-from data.helper import interpolate_time_slice, clip_netcdf, search_path
+from helper import interpolate_time_slice, clip_netcdf, search_path
 
 ######------THIS CODE INTERPOLATES (COARSENS) LOCA2 TO CLIMATE RESOLUTION AND CLIPS INTO CONUS REGION--------#######
-
-
 models= {'access_cm2':'ACCESS-CM2',
         'gfdl_esm4': 'GFDL-ESM4',
         'ipsl_cm6a_lr': 'IPSL-CM6A-LR',
@@ -16,39 +14,43 @@ models= {'access_cm2':'ACCESS-CM2',
         'mri_esm2_0': 'MRI-ESM2_0'}
 
 variables = {'precipitation':'pr'}
-exps = {'ssp2_4_5': 'ssp245'}
+exps = {'ssp5_8_5': 'ssp585', 'historical': 'historical'}
+conus_shape_file = "/pscratch/sd/k/kas7897/conus/conus.shp"
+cmip6_dir = "/pscratch/sd/k/kas7897/cmip6"
 
 for model in models:
     for var in variables:
       for exp in exps:
+        save_path = f'{cmip6_dir}/{model}/{exp}/{var}/loca'
+        os.makedirs(save_path, exist_ok=True)
         if exp == 'historical':
             start_date, end_date = "19500101", "20141231"
+            loca_path_search = f'{save_path}/{variables[var]}.{models[model]}.{exps[exp]}.*.nc'
         else:
+            loca_path_search = f'{save_path}/{variables[var]}.{models[model]}.{exps[exp]}.*.2075-2100.*.nc'
             start_date, end_date = "20150101", "20991231"
 
-        save_path = f'/data/kas7897/diffDownscale/cmip6/{model}/{exp}/{var}/loca'
-        os.makedirs(save_path, exist_ok=True)
-
-        clim_path_search= f"/data/kas7897/diffDownscale/cmip6/{model}/{exp}/{var}/{variables[var]}_day_{models[model]}_{exps[exp]}_r1i1p1f1_*_{start_date}-{end_date}.nc"
-        loca_path_search = f'{save_path}/{variables[var]}.{models[model]}.{exps[exp]}.*.nc'
+        clim_path_search= f"{cmip6_dir}/{model}/{exp}/{var}/{variables[var]}_day_{models[model]}_{exps[exp]}_r1i1p1f1_*_{start_date}-{end_date}.nc"
+        
         
         clim_path = search_path(clim_path_search)
         loca_path = search_path(loca_path_search)
 
-        loca_ds = xr.open_dataset(loca_path)
-        ds_og = xr.open_dataset(clim_path)
+        loca_ds = xr.open_dataset(loca_path, chunks={'time': 10})
+        ds_og = xr.open_dataset(clim_path, chunks={'time': 10})
 
         if not os.path.exists(f'{save_path}/coarse.nc'):
             # Create a new dataset with noisy precipitation
-            loca_ds_copy = loca_ds.copy()
-            time = loca_ds_copy.time.values
-            prcp_n = loca_ds_copy.pr.values
+            # loca_ds_copy = loca_ds.copy()
+            time = loca_ds.time.values
+            prcp_n = loca_ds.pr.values
 
             # ## Bicubic interpolation
             lat_og = ds_og.lat.values
             lon_og = ds_og.lon.values
-            lat_A = loca_ds_copy .lat.values
-            lon_A = loca_ds_copy .lon.values
+            lat_A = loca_ds.lat.values
+            lon_A = loca_ds.lon.values
+
             final = np.zeros((len(time), len(lat_og), len(lon_og)))
 
             # Perform interpolation
@@ -71,14 +73,13 @@ for model in models:
             ds_C['pr'] = ds_C['pr'].where(ds_C['pr'] >= 0, 0)
 
             ds_C.to_netcdf(f'{save_path}/coarse.nc')
+            del loca_ds
             print(f'Yo Yo LOCA Coarsened {model}_{exp}_{var}')
 
 
-        ds_C_clipped = clip_netcdf(nc_file = f'{save_path}/coarse.nc', shape_file = "/data/kas7897/conus/conus.shp")
+        ds_C_clipped = clip_netcdf(nc_file = f'{save_path}/coarse.nc', shape_file = conus_shape_file)
         ds_C_clipped[variables[var]].to_netcdf(f'{save_path}/coarse_USclip.nc')
         print(f'Yo Yo LOCA Clipped {model}_{exp}_{var}')
-
-
 
 
 

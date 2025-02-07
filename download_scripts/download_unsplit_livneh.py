@@ -65,8 +65,8 @@ if __name__ == "__main__":
     output_directory = "/pscratch/sd/k/kas7897/Livneh/unsplit/precipitation"
 
     # Year range for filtering files
-    start_year = 1950
-    end_year = 2014
+    start_year = 1980
+    end_year = 1980
 
     # File extensions to download (e.g., '.nc')
     extensions = ['.nc']

@@ -6,20 +6,23 @@ from bs4 import BeautifulSoup
 BASE_URL = "https://cirrus.ucsd.edu/~pierce/LOCA2/NAmer/"
 
 
-models= { 
+models= {'ipsl_cm6a_lr': 'IPSL-CM6A-LR',
          'mpi_esm1_2_lr':'MPI-ESM1-2-LR', 
          'mri_esm2_0':'MRI-ESM2-0', 
          'access_cm2':'ACCESS-CM2', 
          'miroc6':'MIROC6',
          'gfdl_esm4':'GFDL-ESM4'}
+models= {
+         'miroc6':'MIROC6'}
 variables = {'precipitation':'pr'}
-exps = {'ssp2_4_5': 'ssp245'}
+exps = {'historical':'historical'}
+cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 
 for model in models:
     for var in variables:
       for exp in exps:
 
-        SAVE_DIR = f"/data/kas7897/diffDownscale/cmip6/{model}/{exp}/{var}/loca"  # Directory to save NetCDF files
+        SAVE_DIR = f"{cmip6_dir}/{model}/{exp}/{var}/loca"  # Directory to save NetCDF files
 
         # Define dataset parameters
         clim_model = models[model]      # Example: IPSL-CM6A-LR
@@ -98,7 +101,7 @@ for model in models:
                 print(f"✅ Saved: {file_path}")
 
         # ---------------------- EXECUTE DOWNLOAD ----------------------
-        save_path = os.path.join(SAVE_DIR, clim_model, resolution, member, experiment, variable)
-        download_best_match(URL, save_path)
+        # save_path = os.path.join(SAVE_DIR, clim_model, resolution, member, experiment, variable)
+        download_best_match(URL, SAVE_DIR)
 
         print("🎉 Download complete!")

@@ -4,21 +4,25 @@ import numpy as np
 import os
 import cftime
 import pandas as pd
-from data.helper import interpolate_time_slice
+from helper import interpolate_time_slice
 
 
 ########------THIS CODE REGRIDS UNSPLIT-LIVNEH TO CLIMATE-MODEL RESOLUTION-------##########
 
-clim_models = ['gfdl_esm4', 'ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr', 'mri_esm2_0']
+cmip6_dir = "/pscratch/sd/k/kas7897/cmip6"
+obs_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/precipitation'
+obs_year_range = [1950, 2014]
+
+clim_models = ['gfdl_esm4', 'ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr', 'mri_esm2_0', 'access_cm2']
 for clim in clim_models:
 
-    clim_path = f'/data/kas7897/diffDownscale/cmip6/{clim}/historical/precipitation/clipped_US.nc'
-    obs_path = '/data/kas7897/Livneh/unsplit'
-    path = f'/data/kas7897/Livneh/unsplit/{clim}'
+    clim_path = f'{cmip6_dir}/{clim}/historical/precipitation/clipped_US.nc'
+    
+    path = f'{obs_path}/{clim}'
     os.makedirs(path, exist_ok=True)
 
 
-    for year in range(1980, 2015):
+    for year in range(obs_year_range[0], obs_year_range[1]+1):
 
         prcp_ds = xr.open_dataset(f'{obs_path}/livneh_unsplit_precip.2021-05-02.{year}.nc')
         ds_og = xr.open_dataset(f"{clim_path}")
