@@ -5,29 +5,35 @@ import numpy as np
 import os
 import json
 import matplotlib.pyplot as plt
-import io
+import glob
 
 def load_and_process_year(path, year, valid_coords, num, var):
 
-    ## this is just to manage some difference in file name
-    if not (path.endswith(f'prec_{year}.nc') or path.endswith(f'prec.{year}.nc')):
-        # If not, try adding both formats and check if the file exists
-        file_prec_underscore = os.path.join(path, f'prec_{year}.nc')
-        file_prec_dot = os.path.join(path, f'prec.{year}.nc')
-        file_wind = os.path.join(path, f'wind.{year}.nc')
-        file_wind_up = os.path.join(path, f'wind_{year}.nc')
+    # ## this is just to manage some difference in file name
+    # if not (path.endswith(f'prec_{year}.nc') or path.endswith(f'prec.{year}.nc')):
+    #     # If not, try adding both formats and check if the file exists
+    #     file_prec_underscore = os.path.join(path, f'prec_{year}.nc')
+    #     file_prec_dot = os.path.join(path, f'prec.{year}.nc')
+    #     file_wind = os.path.join(path, f'wind.{year}.nc')
+    #     file_wind_up = os.path.join(path, f'wind_{year}.nc')
 
-        # Check which file exists, and use the correct one
-        if os.path.exists(file_prec_underscore):
-            path = file_prec_underscore
-        elif os.path.exists(file_prec_dot):
-            path = file_prec_dot
-        elif os.path.exists(file_wind):
-            path = file_wind
-        elif os.path.exists(file_wind_up):
-            path = file_wind_up
+    #     # Check which file exists, and use the correct one
+    #     if os.path.exists(file_prec_underscore):
+    #         path = file_prec_underscore
+    #     elif os.path.exists(file_prec_dot):
+    #         path = file_prec_dot
+    #     elif os.path.exists(file_wind):
+    #         path = file_wind
+    #     elif os.path.exists(file_wind_up):
+    #         path = file_wind_up
 
+    search_pattern = os.path.join(path, f'*{year}*.nc')
+    matching_files = glob.glob(search_pattern)
+    if not matching_files:
+        raise FileNotFoundError(f"No NetCDF file found in '{path}' containing year '{year}'.")
 
+    # Select the first available file (or implement logic to choose the best one)
+    path = matching_files[0]
 
     x_year = xr.open_dataset(path)
 
@@ -39,14 +45,17 @@ def load_and_process_year(path, year, valid_coords, num, var):
         lon_coords = valid_coords[:num, 1]
 
         # Use the selected coordinates for both cases
-    x_data = x_year[var].sel(lat=xr.DataArray(lat_coords, dims='points'),
+    if var in x_year.variables.keys():  # Fixed typo: 'variables' instead of 'variable'
+        x_data = x_year[var].sel(lat=xr.DataArray(lat_coords, dims='points'),
                                 lon=xr.DataArray(lon_coords, dims='points'),
                                 method='nearest').values
-
+    else:
+        print(f"Variable '{var}' not found in the Reference NetCDF file. Available variables: {list(x_year.variables.keys())}")
+    
     return x_data
 
 
-def process_data(path, train_period, valid_coords, num, device, var):
+def process_multi_year_data(path, train_period, valid_coords, num, device, var):
     with ThreadPoolExecutor() as executor:
         results = list(executor.map(load_and_process_year,
                                     [path] * (train_period[1] - train_period[0]+1),  # Add path to argument list
