@@ -20,3 +20,4 @@ runs_sh
 models_ibicus
 ibicus_exps
 jobs
+cmip6_exp1.py

@@ -10,9 +10,9 @@ import numpy as np
 import data.valid_crd as valid_crd
 from model.model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
 from model.loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
-from data.data import process_data, getStatDic
+from data.process import process_data, getStatDic
 from torch.utils.data import DataLoader, TensorDataset
-import data.data as data
+import data.process as process
 from sklearn.preprocessing import StandardScaler
 from ibicus.evaluate import assumptions, correlation, marginal, multivariate, trend
 from ibicus.evaluate.metrics import *
@@ -180,15 +180,15 @@ if logging:
 
 if train == 1:
     statDict = getStatDic(flow_regime = 0, seriesLst = seriesLst, seriesdata = x_in, attrLst = attrLst, attrdata = attr_tensor)
-    data.save_dict(statDict, f'{save_path}/statDict.json')
+    process.save_dict(statDict, f'{save_path}/statDict.json')
     # save statDict
 else:
-    statDict = data.load_dict(f'{model_save_path}/statDict.json')
+    statDict = process.load_dict(f'{model_save_path}/statDict.json')
     # load StatDict
 
-attr_norm = data.transNormbyDic(attr_tensor, attrLst, statDict, toNorm=True, flow_regime=0)
+attr_norm = process.transNormbyDic(attr_tensor, attrLst, statDict, toNorm=True, flow_regime=0)
 attr_norm[torch.isnan(attr_norm)] = 0.0
-series_norm = data.transNormbyDic(
+series_norm = process.transNormbyDic(
     x_in, seriesLst, statDict, toNorm=True, flow_regime= 0
 )
 
@@ -203,7 +203,7 @@ input_norm_tensor = input_norm_tensor.permute(1, 0, 2)
 
 
 if trend_analysis:
-    series_norm_future = data.transNormbyDic(
+    series_norm_future = process.transNormbyDic(
         x_in_future, seriesLst, statDict, toNorm=True, flow_regime= 0
     )
     series_norm_future[torch.isnan(series_norm_future)] = 0.0
@@ -456,9 +456,6 @@ else:
                                             lon=xr.DataArray(valid_coords[:, 1], dims='points'),
                                             method='nearest')
             loca_future = loca_future.sel(time =slice(f'{trend_future_period[0]}', f'{trend_future_period[1]}')).values
-            # loca_future = loca_future.sel(time =slice(f'{trend_future_period[0]}', '2085')).values
-
-
 
             loca_future = np.expand_dims(loca_future, axis=-1)
             transformed_x_future = np.expand_dims(transformed_x_future, axis=-1)
