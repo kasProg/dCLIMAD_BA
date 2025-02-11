@@ -9,24 +9,6 @@ import glob
 
 def load_and_process_year(path, year, valid_coords, num, var):
 
-    # ## this is just to manage some difference in file name
-    # if not (path.endswith(f'prec_{year}.nc') or path.endswith(f'prec.{year}.nc')):
-    #     # If not, try adding both formats and check if the file exists
-    #     file_prec_underscore = os.path.join(path, f'prec_{year}.nc')
-    #     file_prec_dot = os.path.join(path, f'prec.{year}.nc')
-    #     file_wind = os.path.join(path, f'wind.{year}.nc')
-    #     file_wind_up = os.path.join(path, f'wind_{year}.nc')
-
-    #     # Check which file exists, and use the correct one
-    #     if os.path.exists(file_prec_underscore):
-    #         path = file_prec_underscore
-    #     elif os.path.exists(file_prec_dot):
-    #         path = file_prec_dot
-    #     elif os.path.exists(file_wind):
-    #         path = file_wind
-    #     elif os.path.exists(file_wind_up):
-    #         path = file_wind_up
-
     search_pattern = os.path.join(path, f'*{year}*.nc')
     matching_files = glob.glob(search_pattern)
     if not matching_files:
