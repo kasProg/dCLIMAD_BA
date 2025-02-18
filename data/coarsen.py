@@ -59,7 +59,7 @@ for clim in clim_models:
 
 
         # # Add attributes if necessary
-        # ds_C.prec.attrs = noisy_prcp_ds.prec.attrs
+        ds_C.prec.attrs = noisy_prcp_ds.PRCP.attrs
         ds_C['prec'] = ds_C['prec'].where(ds_C['prec'] >= 0, 0)
 
         if isinstance(ds_og['time'].values[0], cftime.datetime):
@@ -75,8 +75,6 @@ for clim in clim_models:
         # ds_interp[variables[var]] = ds_interp[variables[var]].where(ref_ds_aligned.prec == ref_ds_aligned.prec, np.nan)
 
         ds_C['prec'] = ds_C['prec'].where(ref_ds_aligned.pr == ref_ds_aligned.pr, np.nan)
-    
-
 
         # Save the new dataset as a NetCDF file
         ds_C.to_netcdf(f'{path}/prec.{year}.nc')

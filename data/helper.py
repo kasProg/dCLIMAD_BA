@@ -95,3 +95,143 @@ def get_time_units(time_variable):
     else:
         # Default to a common unit system if not specified
         return 'days since 1900-01-01'
+    
+
+class UnitManager:
+    """
+    A class for handling unit identification and conversion for climate datasets.
+    """
+
+    # Standard unit definitions
+    STANDARD_UNITS = {
+        "precipitation": "mm/day",
+        "temperature": "°C",
+        "wind_speed": "m/s"
+    }
+
+    # Known unit mappings to standardized units
+    UNIT_MAPPING = {
+        "kg m-2 s-1": "kg/m²/s",
+        "kg/m^2/s": "kg/m²/s",
+        "mm/day": "mm/day",
+        "m/s": "m/s",
+        "K": "K",
+        "°C": "°C",
+        "Celsius": "°C",
+        "hPa": "hPa",
+        "Pa": "Pa"
+    }
+
+    # Conversion factors (to standard units)
+    CONVERSION_FACTORS = {
+        # Convert kg/m²/s (climate model) to mm/day (standard)
+        ("kg/m²/s", "mm/day"): 86400,
+
+        # Convert K to °C
+        ("K", "°C"): lambda x: x - 273.15,
+
+        # Convert m/s to km/h
+        ("m/s", "km/h"): 3.6
+    }
+
+    def __init__(self, dataset_path=None):
+        """
+        Initializes the UnitManager.
+        
+        Parameters:
+            dataset_path (str, optional): Path to a NetCDF/xarray dataset to extract unit information.
+        """
+        self.dataset_path = dataset_path
+        self.unit_metadata = {}  # Stores extracted unit data
+
+        if dataset_path:
+            self._extract_units()
+
+    def _extract_units(self):
+        """Extracts unit metadata from an xarray dataset (NetCDF)."""
+        ds = xr.open_dataset(self.dataset_path)
+
+        for var in ds.data_vars:
+            unit = ds[var].attrs.get("units", "").strip()
+            standardized_unit = self.UNIT_MAPPING.get(unit, unit)
+            self.unit_metadata[var] = standardized_unit
+
+    def identify_unit(self, unit_name):
+        """
+        Identifies the standardized unit.
+
+        Parameters:
+            unit_name (str): Raw unit string.
+
+        Returns:
+            str: Standardized unit name.
+        """
+        return self.UNIT_MAPPING.get(unit_name.strip(), unit_name)
+
+    def get_units(self):
+        """Returns the extracted unit metadata from the dataset."""
+        return self.unit_metadata
+
+    def convert(self, data, variable, current_unit):
+        """
+        Converts data to the standard unit for the given variable.
+        
+        Parameters:
+            data (torch.Tensor, np.ndarray, or xarray.DataArray): Input data to convert.
+            variable (str): Climate variable (e.g., "precipitation", "temperature").
+            current_unit (str): The current unit of the data.
+        
+        Returns:
+            Converted data in standard units.
+        """
+        target_unit = self.STANDARD_UNITS.get(variable, current_unit)
+
+        # If units already match, return as is
+        if current_unit == target_unit:
+            return data
+
+        # Find conversion factor
+        conversion_key = (current_unit, target_unit)
+        if conversion_key in self.CONVERSION_FACTORS:
+            factor = self.CONVERSION_FACTORS[conversion_key]
+
+            # Apply conversion
+            if callable(factor):  # Some conversions require functions (e.g., Kelvin to Celsius)
+                return factor(data)
+            else:
+                return data * factor
+        else:
+            raise ValueError(f"Conversion from {current_unit} to {target_unit} not defined!")
+
+    def convert_dataset(self, dataset, variable, current_unit):
+        """
+        Converts an xarray dataset to standard units.
+        
+        Parameters:
+            dataset (xarray.Dataset or xarray.DataArray): Dataset to convert.
+            variable (str): Climate variable name (e.g., "precipitation").
+            current_unit (str): Current unit of the dataset.
+        
+        Returns:
+            xarray.DataArray: Dataset converted to standard units.
+        """
+        target_unit = self.STANDARD_UNITS.get(variable, current_unit)
+        if current_unit == target_unit:
+            return dataset
+
+        conversion_key = (current_unit, target_unit)
+        if conversion_key in self.CONVERSION_FACTORS:
+            factor = self.CONVERSION_FACTORS[conversion_key]
+
+            if callable(factor):
+                return dataset.map(factor)
+            else:
+                return dataset * factor
+        else:
+            raise ValueError(f"Conversion from {current_unit} to {target_unit} not defined!")
+
+
+# unit_identifier = UnitManager("/pscratch/sd/k/kas7897/Livneh/unsplit/precipitation/gfdl_esm4/prec.1950.nc")
+
+# Extracted metadata
+# print(unit_identifier.get_units())

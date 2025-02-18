@@ -27,7 +27,7 @@ logging = True
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
 
-clim = 'miroc6'
+clim = 'gfdl_esm4'
 ref = 'livneh'
 
 input_x = {'precipitation': ['pr', 'prec', 'precipitation']}
@@ -36,7 +36,7 @@ input_attrs = {'elevation': ['elev', 'elevation']}
 
 
 ### FOR TREND ANALYSIS
-trend_analysis = True
+trend_analysis = False
 scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
@@ -45,7 +45,7 @@ train_period = [1950, 1980]
 test_period = [1991, 2014]
 epochs = 200
 testepoch = 40
-benchmarking = True
+benchmarking = False
 train = False
 
 # model params
@@ -63,12 +63,10 @@ w2 = 0
 ##number of coordinates; if all then set to 'all'
 num = 'all'
 # slice = 0 #for spatial test; set 0 otherwise
-batch_size = 100
+batch_size = 50
 
 seriesLst = input_x.keys()
 attrLst =input_attrs.keys()
-
-
 
 
 ###-------- Developer section here -----------###
@@ -256,8 +254,13 @@ else:
                                             method='nearest')
         loca = loca.sel(time =slice(f'{period[0]}', f'{period[1]}')).values
 
+
+        
         QM_bench = f'benchmark/QM_parameteric_ibicus/conus/{clim}-{ref}/{train_period}_{test_period}{num}.pt'
-        QM_debiased = torch.load(QM_bench, weights_only=False)
+        if os.path.exists(QM_bench):
+            QM_debiased = torch.load(QM_bench, weights_only=False)
+        else:
+            QM_debiased = 1 #left to edit
         
 
         x = np.expand_dims(x, axis=-1)
@@ -319,8 +322,13 @@ else:
             transformed_x_future = torch.cat(transformed_x_future, dim=0).numpy().T
             x_future = torch.cat(x_future, dim=0).numpy().T
 
+            
             QM_bench_future = f'benchmark/QM_parameteric_ibicus/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}_{num}.pt'
-            QM_debiased_future = torch.load(QM_bench_future, weights_only=False)
+            if os.path.exists(QM_bench):
+                QM_debiased_future = torch.load(QM_bench_future, weights_only=False)
+            else:
+                QM_debiased_future = 1 #left to edit
+        
 
             loca_future = xr.open_dataset(f'{cmip6_dir}/{clim}/{scenario}/precipitation/loca/coarse_USclip.nc')
             loca_future = loca_future[input_x['precipitation'][0]].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
