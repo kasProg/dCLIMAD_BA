@@ -6,8 +6,9 @@ import os
 import json
 import matplotlib.pyplot as plt
 import glob
+from data.helper import UnitManager
 
-def load_and_process_year(path, year, valid_coords, num, var):
+def load_and_process_year(path, year, valid_coords, num, var, possible_vars):
 
     search_pattern = os.path.join(path, f'*{year}*.nc')
     matching_files = glob.glob(search_pattern)
@@ -18,6 +19,9 @@ def load_and_process_year(path, year, valid_coords, num, var):
     path = matching_files[0]
 
     x_year = xr.open_dataset(path)
+    unit_identifier = UnitManager(x_year)
+    units = unit_identifier.get_units()                 
+    matched_var = next((v for v in possible_vars if v in x_year.variables), None)
 
     if num == 'all':
         lat_coords = valid_coords[:, 0]
@@ -26,11 +30,13 @@ def load_and_process_year(path, year, valid_coords, num, var):
         lat_coords = valid_coords[:num, 0]
         lon_coords = valid_coords[:num, 1]
 
-        # Use the selected coordinates for both cases
-    if var in x_year.variables.keys():  # Fixed typo: 'variables' instead of 'variable'
-        x_data = x_year[var].sel(lat=xr.DataArray(lat_coords, dims='points'),
+    
+    if matched_var:
+        x_data = x_year[matched_var].sel(lat=xr.DataArray(lat_coords, dims='points'),
                                 lon=xr.DataArray(lon_coords, dims='points'),
                                 method='nearest').values
+         #managing units
+        x_data = unit_identifier.convert(x_data, var, units[matched_var])
     else:
         print(f"Variable '{var}' not found in the Reference NetCDF file. Available variables: {list(x_year.variables.keys())}")
     
@@ -38,13 +44,15 @@ def load_and_process_year(path, year, valid_coords, num, var):
 
 
 def process_multi_year_data(path, train_period, valid_coords, num, device, var):
+    var, possible_vars = var
     with ThreadPoolExecutor() as executor:
         results = list(executor.map(load_and_process_year,
                                     [path] * (train_period[1] - train_period[0]+1),  # Add path to argument list
                                     range(train_period[0], train_period[1]+1),
                                     [valid_coords] * (train_period[1] - train_period[0]+1),
                                     [num] * (train_period[1] - train_period[0]+1),
-                                    [var] * (train_period[1] - train_period[0]+1)))
+                                    [var] * (train_period[1] - train_period[0]+1),
+                                    [possible_vars] * (train_period[1] - train_period[0]+1)))
 
     x_list = results
 

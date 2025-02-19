@@ -134,22 +134,22 @@ class UnitManager:
         ("m/s", "km/h"): 3.6
     }
 
-    def __init__(self, dataset_path=None):
+    def __init__(self, dataset=None):
         """
         Initializes the UnitManager.
         
         Parameters:
-            dataset_path (str, optional): Path to a NetCDF/xarray dataset to extract unit information.
+            dataset (xarray dataset): NetCDF/xarray dataset to extract unit information.
         """
-        self.dataset_path = dataset_path
+        self.dataset = dataset
         self.unit_metadata = {}  # Stores extracted unit data
 
-        if dataset_path:
+        if dataset:
             self._extract_units()
 
     def _extract_units(self):
         """Extracts unit metadata from an xarray dataset (NetCDF)."""
-        ds = xr.open_dataset(self.dataset_path)
+        ds = self.dataset
 
         for var in ds.data_vars:
             unit = ds[var].attrs.get("units", "").strip()
@@ -184,8 +184,12 @@ class UnitManager:
         Returns:
             Converted data in standard units.
         """
-        target_unit = self.STANDARD_UNITS.get(variable, current_unit)
+        if current_unit in ('', None):
+            print(f"Warning: No unit metadata found for {variable}. Returning dataset unchanged.")
+            return data
 
+        target_unit = self.STANDARD_UNITS.get(variable, current_unit)
+        
         # If units already match, return as is
         if current_unit == target_unit:
             return data
@@ -203,32 +207,6 @@ class UnitManager:
         else:
             raise ValueError(f"Conversion from {current_unit} to {target_unit} not defined!")
 
-    def convert_dataset(self, dataset, variable, current_unit):
-        """
-        Converts an xarray dataset to standard units.
-        
-        Parameters:
-            dataset (xarray.Dataset or xarray.DataArray): Dataset to convert.
-            variable (str): Climate variable name (e.g., "precipitation").
-            current_unit (str): Current unit of the dataset.
-        
-        Returns:
-            xarray.DataArray: Dataset converted to standard units.
-        """
-        target_unit = self.STANDARD_UNITS.get(variable, current_unit)
-        if current_unit == target_unit:
-            return dataset
-
-        conversion_key = (current_unit, target_unit)
-        if conversion_key in self.CONVERSION_FACTORS:
-            factor = self.CONVERSION_FACTORS[conversion_key]
-
-            if callable(factor):
-                return dataset.map(factor)
-            else:
-                return dataset * factor
-        else:
-            raise ValueError(f"Conversion from {current_unit} to {target_unit} not defined!")
 
 
 # unit_identifier = UnitManager("/pscratch/sd/k/kas7897/Livneh/unsplit/precipitation/gfdl_esm4/prec.1950.nc")

@@ -4,7 +4,7 @@ import xarray as xr
 from torch.utils.data import DataLoader, TensorDataset
 import data.valid_crd as valid_crd
 import data.process as process  # Corrected import
-
+from data.helper import UnitManager
 ### Some limitations: 
 # Loyal to CONUS region, eg files named clipped_US
 
@@ -72,16 +72,18 @@ class DataLoaderWrapper:
         """Loads dynamic inputs (precipitation, wind, etc.)."""
         x_data = []
         time_x = None
-
+        print('Processing x data...')
         for var, possible_vars in self.input_x.items():
-            print(f"Processing Climate {var}...")
+            print(f"Processing x: Climate {var}...")
 
             # Open the NetCDF file (assuming a generic variable name for directory structure)
             ds = xr.open_dataset(f"{self.cmip6_dir}/{self.clim}/{self.scenario}/{var}/clipped_US.nc")
-
-            # Find the first available variable from the list
+             # Find the first available variable from the list
             matched_var = next((v for v in possible_vars if v in ds.variables), None)
 
+            unit_identifier = UnitManager(ds)
+            units = unit_identifier.get_units()            
+           
             if matched_var:
                 print(f"Using '{matched_var}' for '{var}'")
                 x_var = ds[matched_var].sel(
@@ -90,9 +92,11 @@ class DataLoaderWrapper:
                     method='nearest'
                 ).sel(time=slice(f"{self.period[0]}", f"{self.period[1]}"))
                 time_x = x_var.time.values
-                x_var = x_var.values 
-                if var == 'precipitation':
-                    x_var = x_var*86400
+                x_var = x_var.values
+
+                #managing units
+                x_var = unit_identifier.convert(x_var, var, units[matched_var]) 
+
                 x_var = torch.tensor(x_var).to(self.device)
                 x_data.append(x_var.unsqueeze(-1))
                     
@@ -106,31 +110,14 @@ class DataLoaderWrapper:
         return x_data.to(torch.float32), time_x
 
     def load_y_data(self):
-        """Loads reference precipitation data (Livneh)."""
+        """Loads reference data (Livneh)."""
         print("Processing y data...")
         y_data = []
         for var, possible_vars in self.target_y.items():
-            selected_var = None
+            print(f'Processing y: Reference {var}...')
             path = os.path.join(self.ref_path, f'{var}/{self.clim}')
-
-            # Try each possible variable name in the NetCDF file
-            for candidate in possible_vars:
-                try:
-                    y = process.process_multi_year_data(path, self.period, self.valid_coords, 
-                                            self.crd, self.device, var=candidate)
-                    selected_var = candidate  # Store the successfully processed variable
-                    break  # Stop checking once a valid variable is found
-                except FileNotFoundError:
-                    continue  # If the file isn't found, try the next candidate
-                except Exception as e:
-                    print(f"Error processing '{candidate}': {e}")
-                    continue
-
-            if selected_var:
-                print(f"For Reference (Y) data, using '{selected_var}' for '{var}'")
-            else:
-                raise ValueError(f"None of the variables {possible_vars} were found in the NetCDF file.")
-            
+            y = process.process_multi_year_data(path, self.period, self.valid_coords, 
+                                                self.crd, self.device, var=(var, possible_vars))           
             y_data.append(y.unsqueeze(-1))
             
         y_data = torch.cat(y_data, dim=-1)

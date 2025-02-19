@@ -24,14 +24,14 @@ torch.manual_seed(42)
 cuda_device = 0
 device = torch.device(f"cuda:{cuda_device}" if torch.cuda.is_available() else "cpu")
 logging = True
-cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
-ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
+cmip6_dir = '/data/kas7897/diffDownscale/cmip6'
+ref_path = '/data/kas7897/Livneh/unsplit/'
 
 clim = 'gfdl_esm4'
 ref = 'livneh'
 
-input_x = {'precipitation': ['pr', 'prec', 'precipitation']}
-target_y = {'precipitation': ['pr', 'prec','precipitation']}
+input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
+target_y = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
 input_attrs = {'elevation': ['elev', 'elevation']}
 
 
@@ -41,12 +41,12 @@ scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
 
-train_period = [1950, 1980]
+train_period = [1980, 1990]
 test_period = [1991, 2014]
 epochs = 200
 testepoch = 40
 benchmarking = False
-train = False
+train = True
 
 # model params
 model_type = 'ANN' #[SST, Poly2]
