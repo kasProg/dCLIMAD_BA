@@ -7,16 +7,14 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 import pandas as pd
 import numpy as np
-import data.valid_crd as valid_crd
 from model.model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
 from model.loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
-from data.process import process_multi_year_data, getStatDic
-from torch.utils.data import DataLoader, TensorDataset
 import data.process as process
 from sklearn.preprocessing import StandardScaler
 from ibicus.evaluate import assumptions, correlation, marginal, multivariate, trend
 from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
+from model.benchmark import BiasCorrectionBenchmark
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
@@ -24,29 +22,30 @@ torch.manual_seed(42)
 cuda_device = 0
 device = torch.device(f"cuda:{cuda_device}" if torch.cuda.is_available() else "cpu")
 logging = True
-cmip6_dir = '/data/kas7897/diffDownscale/cmip6'
-ref_path = '/data/kas7897/Livneh/unsplit/'
+cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
+ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
 
-clim = 'gfdl_esm4'
+clim = 'miroc6'
 ref = 'livneh'
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
+clim_var = 'pr'
 target_y = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
 input_attrs = {'elevation': ['elev', 'elevation']}
 
 
 ### FOR TREND ANALYSIS
-trend_analysis = False
+trend_analysis = True
 scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
 
-train_period = [1980, 1990]
+train_period = [1950, 1980]
 test_period = [1991, 2014]
 epochs = 200
 testepoch = 40
-benchmarking = False
-train = True
+benchmarking = True
+train = False
 
 # model params
 model_type = 'ANN' #[SST, Poly2]
@@ -98,9 +97,11 @@ data_loader = DataLoaderWrapper(
 dataloader = data_loader.get_dataloader()
 
 if not train and trend_analysis:
+    future_save_path = model_save_path + f'{scenario}_{trend_future_period[0]}_{trend_future_period[1]}/'
+    os.makedirs(future_save_path, exist_ok=True)
     data_loader_future = DataLoaderWrapper(
-    clim=clim, scenario = 'ssp5_8_5', ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
-    input_x=input_x, input_attrs=input_attrs, target_y={}, save_path=save_path, stat_save_path = model_save_path, 
+    clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
+    input_x=input_x, input_attrs=input_attrs, target_y={}, save_path=future_save_path, stat_save_path = model_save_path, 
     crd='all', batch_size=100, train=train, device=cuda_device)
 
     dataloader_future = data_loader_future.get_dataloader_future()
@@ -230,8 +231,8 @@ else:
    
 
     transformed_x = torch.cat(transformed_x, dim=0).numpy().T
-    transformed_x_nc = valid_crd.reconstruct_nc(transformed_x/86400, valid_coords, time_x, input_x['precipitation'][0])
-    transformed_x_nc.to_netcdf(f'{test_save_path}/xt.nc')
+    # transformed_x_nc = valid_crd.reconstruct_nc(transformed_x/86400, valid_coords, time_x, input_x['precipitation'][0])
+    # transformed_x_nc.to_netcdf(f'{test_save_path}/xt.nc')
     x = torch.cat(x, dim=0).numpy().T
     y = torch.cat(y, dim=0).numpy().T        
     
@@ -256,12 +257,21 @@ else:
 
 
         
-        QM_bench = f'benchmark/QM_parameteric_ibicus/conus/{clim}-{ref}/{train_period}_{test_period}{num}.pt'
+        QM_bench = f'benchmark/QuantileMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
         if os.path.exists(QM_bench):
             QM_debiased = torch.load(QM_bench, weights_only=False)
         else:
-            QM_debiased = 1 #left to edit
-        
+            bench = BiasCorrectionBenchmark(clim = clim,
+                                            ref = ref,
+                                            hist_period = train_period, 
+                                            test_period = test_period, 
+                                            scenario = 'historical', 
+                                            clim_var = clim_var, 
+                                            correction_methods = ['QuantileMapping'],  
+                                            model_path = model_save_path, 
+                                            test_path = save_path)  
+            bench.apply_correction()
+            QM_debiased = torch.load(QM_bench, weights_only=False)
 
         x = np.expand_dims(x, axis=-1)
         loca = np.expand_dims(loca, axis=-1)
@@ -274,7 +284,7 @@ else:
         x = x/86400
         y = y/86400
         transformed_x = transformed_x/86400
-        QM_debiased = QM_debiased/86400
+        # QM_debiased =  QM_debiased/ 86400
         
 
         pr_marginal_bias_data = marginal.calculate_marginal_bias(metrics = pr_metrics, 
@@ -320,14 +330,25 @@ else:
 
         if trend_analysis:
             transformed_x_future = torch.cat(transformed_x_future, dim=0).numpy().T
+            torch.save(transformed_x_future, f'{future_save_path}/xt.pt')
             x_future = torch.cat(x_future, dim=0).numpy().T
 
             
-            QM_bench_future = f'benchmark/QM_parameteric_ibicus/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}_{num}.pt'
-            if os.path.exists(QM_bench):
+            QM_bench_future = f'benchmark/QuantileMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+            if os.path.exists(QM_bench_future):
                 QM_debiased_future = torch.load(QM_bench_future, weights_only=False)
             else:
-                QM_debiased_future = 1 #left to edit
+                bench = BiasCorrectionBenchmark(clim = clim,
+                                            ref = ref,
+                                            hist_period = train_period, 
+                                            test_period = trend_future_period, 
+                                            scenario = scenario, 
+                                            clim_var = clim_var, 
+                                            correction_methods = ['QuantileMapping'],  
+                                            model_path = model_save_path, 
+                                            test_path = future_save_path)
+                bench.apply_correction()
+                QM_debiased_future = torch.load(QM_bench_future, weights_only=False) 
         
 
             loca_future = xr.open_dataset(f'{cmip6_dir}/{clim}/{scenario}/precipitation/loca/coarse_USclip.nc')
@@ -340,7 +361,7 @@ else:
             transformed_x_future = np.expand_dims(transformed_x_future, axis=-1)
             x_future = np.expand_dims(x_future, axis=-1)
 
-            QM_debiased_future = QM_debiased_future/86400
+            # QM_debiased_future = QM_debiased_future/86400
             x_future = x_future/86400
             transformed_x_future = transformed_x_future/86400
 
@@ -357,7 +378,7 @@ else:
                                                             remove_outliers = True,
                                                                     outlier_threshold = 500)
             
-            trend_plot.savefig(f'{test_save_path}/ibicus_fig2.png')
+            trend_plot.savefig(f'{future_save_path}/ibicus_fig2.png')
 
         if logging:
             writer.add_text(

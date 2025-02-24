@@ -126,6 +126,7 @@ class UnitManager:
     CONVERSION_FACTORS = {
         # Convert kg/m²/s (climate model) to mm/day (standard)
         ("kg/m²/s", "mm/day"): 86400,
+        ("mm", "mm/day"): 1,
 
         # Convert K to °C
         ("K", "°C"): lambda x: x - 273.15,
