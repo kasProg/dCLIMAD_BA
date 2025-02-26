@@ -42,43 +42,20 @@ class BiasCorrectionBenchmark:
 
     def load_data(self):
         """Loads the historical and future climate model data and reference dataset."""
-        print("Loading dataset for benchmarking...")
-        # ds_sample = xr.open_dataset(f"{self.dataset_path}prec.1980.nc")
-        # valid_coords = valid_crd.valid_lat_lon(ds_sample)
-
-
-        # hist_path = f'{self.cmip6_dir}/{self.clim}/historical/{self.var}/clipped_US.nc'
-        # test_path = f'{self.cmip6_dir}/{self.clim}/{self.scenario}/{self.var}/clipped_US.nc'
-
-        
-        # x_hist = xr.open_dataset(hist_path)
-        # self.hist_time = x_hist.time.values
-        # x_hist = x_hist[self.clim_var].sel(
-        #     lat=xr.DataArray(valid_coords[:, 0], dims='points'),
-        #     lon=xr.DataArray(valid_coords[:, 1], dims='points'),
-        #     method='nearest'
-        # ).sel(time=slice(f'{self.hist_period[0]}', f'{self.hist_period[1]}'))
-
-        # x_hist = x_hist.values
-        # self.hist_model = np.expand_dims(x_hist, axis=-1)
+        print("Loading dataset for benchmarking...")      
+       
         self.hist_time =  torch.load(f'{self.model_path}/time.pt', weights_only=False)
         self.hist_model = torch.load(f'{self.model_path}/x.pt', weights_only=False).cpu().numpy()
-
-        # x_test = xr.open_dataset(test_path)
-        # self.test_time = x_test.time.values
-        # x_test = x_test[self.clim_var].sel(
-        #     lat=xr.DataArray(valid_coords[:, 0], dims='points'),
-        #     lon=xr.DataArray(valid_coords[:, 1], dims='points'),
-        #     method='nearest'
-        # ).sel(time=slice(f'{self.test_period[0]}', f'{self.test_period[1]}'))
-
-        # x_test = x_test.values
-        # self.test_model = np.expand_dims(x_test, axis=-1)
 
         self.test_time =  torch.load(f'{self.test_path}/time.pt', weights_only=False)
         self.test_model = torch.load(f'{self.test_path}/x.pt', weights_only=False).cpu().numpy()
         
         self.reference = torch.load(f'{self.model_path}/y.pt', weights_only=False).cpu().numpy()
+
+        ## needed for perfect model approach
+        if os.path.exists(f'{self.model_path}/time_y.pt'):
+            self.ref_time = torch.load(f'{self.model_path}/time_y.pt', weights_only=False)
+
 
         ## may need to refactor better
         if self.clim_var == 'pr': ##  mm/day to mm/s or kg/m2/s
