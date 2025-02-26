@@ -36,7 +36,7 @@ logging = True
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 # ref_path = '/pscratch/sd/k/kas7897/cmip6/'
 
-clim = 'access_cm2'
+clim = 'mri_esm2_0'
 ref = 'gfdl_esm4'
 
 input_x = ['precipitation']
@@ -44,16 +44,16 @@ clim_var = 'pr'
 target_y = ['precipitation']
 input_attrs = ['elevation']
 
-scenario = 'historical'
+scenario = 'ssp5_8_5'
 # trend_future_period = [2075, 2099]
 
 train_period = [1950, 1980]
 # test_period = [1991, 2014]
 test_period = [2075, 2099]
 epochs = 200
-testepoch = 40
+testepoch = 30
 benchmarking = True
-train = True
+train = False
 
 # model params
 model_type = 'ANN' #[SST, Poly2]
