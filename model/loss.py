@@ -23,10 +23,16 @@ def distributional_loss_interpolated(transformed_x, target_y, device, num_quanti
     quantiles_x = interpolate_quantiles(transformed_x, device, quantile_levels, num_quantiles)
     quantiles_y = interpolate_quantiles(target_y, device, quantile_levels, num_quantiles)
     
-    if type(emph_quantile) == float:
-        weights = torch.exp(-torch.abs(quantile_levels - emph_quantile)).unsqueeze(-1)  # Emphasize 25% quantiles
+    if isinstance(emph_quantile, (float, int)):
+        # Single quantile emphasis
+        weights = torch.exp(-torch.abs(quantile_levels - emph_quantile)).unsqueeze(-1)
+    elif isinstance(emph_quantile, (list, tuple)) and all(isinstance(q, (float, int)) for q in emph_quantile):
+        # Multiple quantiles emphasis
+        weights = sum(torch.exp(-torch.abs(quantile_levels - q)) for q in emph_quantile).unsqueeze(-1)
     else:
-        weights=1
+        # No emphasis (uniform weighting)
+        weights = 1
+
 
     # Calculate the mean squared error (MSE) between quantiles
     loss = torch.mean(weights*(quantiles_x - quantiles_y) ** 2)

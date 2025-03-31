@@ -25,17 +25,19 @@ logging = True
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
 
-clim = 'miroc6'
+clim = 'ensemble'
 ref = 'livneh'
+train = False
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
 target_y = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
 input_attrs = {'elevation': ['elev', 'elevation']}
+# input_attrs = {}
 
 
 ### FOR TREND ANALYSIS
-trend_analysis = True
+trend_analysis = False
 scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
@@ -43,14 +45,13 @@ trend_future_period = [2075, 2099]
 train_period = [1950, 1980]
 test_period = [1991, 2014]
 epochs = 200
-testepoch = 40
+testepoch = 50
 benchmarking = True
-train = False
 
 # model params
 model_type = 'ANN' #[SST, Poly2]
 # resume = False
-degree = 1 # degree of transformation
+degree = 2 # degree of transformation
 layers = 4 #number of layers to ANN
 emph_quantile = 0.5
 

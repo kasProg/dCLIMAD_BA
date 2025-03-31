@@ -50,7 +50,11 @@ class DataLoaderWrapper:
 
     def get_valid_coords(self):
         """Extracts valid latitude-longitude pairs."""
-        ds_sample = xr.open_dataset(f"{self.ref_path}/precipitation/{self.clim}/prec.1980.nc")
+        if self.clim ==  'ensemble':
+            y_clim = 'access_cm2'
+        else:
+            y_clim = self.clim
+        ds_sample = xr.open_dataset(f"{self.ref_path}/precipitation/{y_clim}/prec.1980.nc")
         return valid_crd.valid_lat_lon(ds_sample)
 
     def load_attrs(self):
@@ -115,7 +119,11 @@ class DataLoaderWrapper:
         y_data = []
         for var, possible_vars in self.target_y.items():
             print(f'Processing y: Reference {var}...')
-            path = os.path.join(self.ref_path, f'{var}/{self.clim}')
+            if self.clim ==  'ensemble':
+                y_clim = 'access_cm2'
+            else:
+                y_clim = self.clim
+            path = os.path.join(self.ref_path, f'{var}/{y_clim}')
             y = process.process_multi_year_data(path, self.period, self.valid_coords, 
                                                 self.crd, self.device, var=(var, possible_vars))           
             y_data.append(y.unsqueeze(-1))
@@ -130,7 +138,12 @@ class DataLoaderWrapper:
         for var in self.input_attrs:
             if var in self.attrs_data:
                 attr_tensors.append(torch.tensor(self.attrs_data[var]).to(self.x_data.dtype).to(self.device).unsqueeze(-1))
-        attr_tensor = torch.cat(attr_tensors, dim=-1).to(torch.float32)
+        
+        if attr_tensors:
+            attr_tensor = torch.cat(attr_tensors, dim=-1).to(torch.float32)
+        else:
+             # Create an empty tensor with the expected number of dimensions
+            attr_tensor = torch.empty(0, dtype=torch.float32).to(self.device)
         return attr_tensor
 
     def normalize_data(self):
@@ -142,13 +155,18 @@ class DataLoaderWrapper:
             process.save_dict(statDict, f'{self.stat_save_path}/statDict.json')
         else:
             statDict = process.load_dict(f'{self.stat_save_path}/statDict.json')
-        attr_norm = process.transNormbyDic(self.attr_tensor, list(self.input_attrs.keys()), statDict, toNorm=True, flow_regime=0)
-        attr_norm[torch.isnan(attr_norm)] = 0.0
         series_norm = process.transNormbyDic(self.x_data, list(self.input_x.keys()), statDict, toNorm=True, flow_regime=0)
         series_norm[torch.isnan(series_norm)] = 0.0
 
-        attr_norm_tensor = attr_norm.unsqueeze(0).expand(series_norm.shape[0], -1, -1)
-        return torch.cat((series_norm, attr_norm_tensor), dim=2).permute(1, 0, 2)
+        if self.attr_tensor.numel()!=0:
+            attr_norm = process.transNormbyDic(self.attr_tensor, list(self.input_attrs.keys()), statDict, toNorm=True, flow_regime=0)
+            attr_norm[torch.isnan(attr_norm)] = 0.0  
+            attr_norm_tensor = attr_norm.unsqueeze(0).expand(series_norm.shape[0], -1, -1)
+
+            return torch.cat((series_norm, attr_norm_tensor), dim=2).permute(1, 0, 2)
+        
+        else:
+            return series_norm.permute(1, 0, 2)
 
     def get_dataloader(self):
         """Returns a PyTorch DataLoader."""

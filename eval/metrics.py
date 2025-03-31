@@ -214,9 +214,9 @@ def get_mae(x, y, xt, time, indices_manager):
             computed_x = threshold(time, x)
             computed_y = threshold(time, y)
             computed_xt = threshold(time, xt)
-            mae[label] = compute_rmse(None, computed_x, computed_y, computed_xt)
+            mae[label] = compute_mae(None, computed_x, computed_y, computed_xt)
         else:
-            mae[label] = compute_rmse(comparison(y, threshold), x, y, xt)
+            mae[label] = compute_mae(comparison(y, threshold), x, y, xt)
     return mae
 
 
