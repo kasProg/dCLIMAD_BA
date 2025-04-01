@@ -57,15 +57,57 @@ def compute_r20mm(time, y):
     df = pd.DataFrame(y, index=pd.to_datetime(time))
     return (df >= 20).resample('YE').sum().values  # Annual count of days with PRCP ≥ 20mm
 
-# Function to compute CDD (Consecutive Dry Days)
-def compute_cdd(time, y):
-    df = pd.DataFrame(y < 1, index=pd.to_datetime(time))  # Mask for dry days (PRCP < 1mm)
-    return df.resample('YE').apply(lambda x: x.astype(int).groupby((x != x.shift()).cumsum()).sum().max()).values  # Max consecutive dry days
+# # Function to compute CDD (Consecutive Dry Days)
+# def compute_cdd(time, y):
+#     df = pd.DataFrame(y < 1, index=pd.to_datetime(time))  # Mask for dry days (PRCP < 1mm)
+#     return df.resample('YE').apply(lambda x: x.astype(int).groupby((x != x.shift()).cumsum()).sum().max()).values
 
-# Function to compute CWD (Consecutive Wet Days)
+def get_longest_streak(time, y, threshold=1.0, condition='lt'):
+    """
+    Compute the longest consecutive run of days per year based on a threshold.
+
+    Parameters:
+        time (array-like): Timestamps for each day.
+        y (array-like): Daily values (e.g., precipitation).
+        threshold (float): Threshold for dry/wet day cutoff (e.g., 1mm).
+        condition (str): 'lt' for < threshold (dry), 'ge' for ≥ threshold (wet).
+
+    Returns:
+        np.ndarray: Array of longest consecutive streaks per year.
+    """
+    time = pd.to_datetime(time)
+    if condition == 'lt':
+        mask = (y < threshold)
+    elif condition == 'ge':
+        mask = (y >= threshold)
+    else:
+        raise ValueError("condition must be 'lt' or 'ge'")
+
+    df = pd.DataFrame(mask, index=time)
+
+    def longest_run(series):
+        s = series.astype(int)
+        return s.groupby((s != s.shift()).cumsum()).sum().max()
+
+    result = df.resample('YE').apply(lambda x: longest_run(x))
+    return result.to_numpy()
+
+
+def compute_cdd(time, y):
+    """Compute Consecutive Dry Days (CDD): PRCP < 1mm"""
+    return get_longest_streak(time, y, threshold=1.0, condition='lt')
+
 def compute_cwd(time, y):
-    df = pd.DataFrame(y >= 1, index=pd.to_datetime(time))  # Mask for wet days (PRCP ≥ 1mm)
-    return df.resample('YE').apply(lambda x: x.astype(int).groupby((x != x.shift()).cumsum()).sum().max()).values  # Max consecutive wet days
+    """Compute Consecutive Wet Days (CWD): PRCP ≥ 1mm"""
+    return get_longest_streak(time, y, threshold=1.0, condition='ge')
+
+
+# # Function to compute CWD (Consecutive Wet Days)
+# def compute_cwd(time, y):
+#     df = pd.DataFrame(y >= 1, index=pd.to_datetime(time))  # Mask for wet days (PRCP ≥ 1mm)
+#     return df.resample('YE').apply(lambda x: x.astype(int).groupby((x != x.shift()).cumsum()).sum().max()).values  # Max consecutive wet days
+
+
 
 # Function to compute R95pTOT (Annual total precipitation above 95th percentile)
 def compute_r95ptot(time, y):
@@ -109,8 +151,8 @@ class ClimateIndices:
 # Function to compute mean bias per coordinate
 def compute_mean_bias(mask, x, y, xt):
     if mask is None:
-        bias_x = np.mean(x - y, axis=0)
-        bias_xt = np.mean(xt - y, axis=0)
+        bias_x = np.nanmean(x - y, axis=0)
+        bias_xt = np.nanmean(xt - y, axis=0)
     else:
         mask_expanded = np.where(mask, 1, np.nan)  # Convert mask to NaN-based filter
         bias_x = np.nanmean((x - y) * mask_expanded, axis=0)  # Compute mean bias location-wise
@@ -119,8 +161,8 @@ def compute_mean_bias(mask, x, y, xt):
 
 def compute_mean_bias_percentage(mask, x, y, xt):
     if mask is None:
-        percent_bias_x = np.mean((x - y) / (y + 1e-6) * 100, axis=0)
-        percent_bias_xt = np.mean((xt - y) / (y + 1e-6) * 100, axis=0)
+        percent_bias_x = np.nanmean(((x - y) / (y + 1e-6)) * 100, axis=0)
+        percent_bias_xt = np.nanmean(((xt - y) / (y + 1e-6)) * 100, axis=0)
     else:
         mask_expanded = np.where(mask, 1, np.nan)  # Convert mask to NaN-based filter
         percent_bias_x = np.nanmean(((x - y) / (y + 1e-6)) * 100 * mask_expanded, axis=0)  # Compute mean percentage bias location-wise
@@ -145,8 +187,8 @@ def compute_day_bias_percentage(threshold, x, y, xt, comparison):
 
 def compute_mae(mask, x, y, xt):
     if mask is None:
-        mae_x = np.mean(np.abs(x - y), axis=0)
-        mae_xt = np.mean(np.abs(xt - y), axis=0)
+        mae_x = np.nanmean(np.abs(x - y), axis=0)
+        mae_xt = np.nanmean(np.abs(xt - y), axis=0)
     else:
         mask_expanded = np.where(mask, 1, np.nan)  # Convert mask to NaN-based filter
         mae_x = np.nanmean(np.abs(x - y) * mask_expanded, axis=0)

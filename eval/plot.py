@@ -98,119 +98,65 @@ def plot_violin_bias(ax, bias_data, bias_label, title, method_names=None, remove
     ax.set_ylabel(bias_label)
     ax.grid(axis="y", linestyle="--", alpha=0.7)
 
-
-# def plot_spatial_bias(valid_coords, mean_bias_values_array, threshold_type, label, vmin=None, vmax=None):
-#     lats, lons = zip(*valid_coords)  # Extract latitudes and longitudes
-    
-#     fig, axes = plt.subplots(1, 2, figsize=(16, 4))
-
-#     if threshold_type==None:
-#         fig.suptitle("Overall", fontsize=16, fontweight='bold')
-
-#         for ax, mean_bias_values, title in zip(axes, [mean_bias_values_array[0], mean_bias_values_array[1]], ['Raw', 'Bias Adjusted']):
-#             m = Basemap(projection='merc',
-#                         llcrnrlat=min(lats)-1, urcrnrlat=max(lats)+1,
-#                         llcrnrlon=min(lons)-1, urcrnrlon=max(lons)+1,
-#                         resolution='i', ax=ax)
-#             m.drawcoastlines()
-#             m.drawcountries()
-#             x, y = m(lons, lats)
-#             sc = m.scatter(x, y, c=mean_bias_values, cmap="coolwarm", marker="o", edgecolor="k", alpha=0.75, vmin=vmin, vmax=vmax)
-            
-#             ax.set_title(title)
-#     else:
-
-#         fig.suptitle(threshold_type, fontsize=16, fontweight='bold')
-
-#         for ax, mean_bias_values, title in zip(axes, [mean_bias_values_array[threshold_type][0], mean_bias_values_array[threshold_type][1]], ['Raw', 'Bias Adjusted']):
-#             m = Basemap(projection='merc',
-#                         llcrnrlat=min(lats)-1, urcrnrlat=max(lats)+1,
-#                         llcrnrlon=min(lons)-1, urcrnrlon=max(lons)+1,
-#                         resolution='i', ax=ax)
-#             m.drawcoastlines()
-#             m.drawcountries()
-#             # m.drawparallels(np.arange(int(min(lats)), int(max(lats)), 2), labels=[1,0,0,0], fontsize=10)
-#             # m.drawmeridians(np.arange(int(min(lons)), int(max(lons)), 2), labels=[0,0,0,1], fontsize=10)
-            
-#             x, y = m(lons, lats)
-#             sc = m.scatter(x, y, c=mean_bias_values, cmap="coolwarm", marker="o", edgecolor="k", alpha=0.75, vmin=vmin, vmax=vmax)
-            
-#             ax.set_title(title)
-            
-    
-#     fig.colorbar(sc, ax=axes, orientation="vertical", fraction=0.02, pad=0.05, label=label)
-#     plt.show()
-
-def plot_spatial_bias(valid_coords, mean_bias_values_array, threshold_type, label, 
-                              method_names=None, vmin=None, vmax=None, fig=None, axes=None):
+def plot_spatial_bias(valid_coords, bias_data_dict, threshold_types, label,
+                              method_names=None, vmin=None, vmax=None, cmap="coolwarm"):
     """
-    Function to plot spatial maps of bias for Raw and multiple bias correction methods.
-    Supports both standalone plots and subplots.
+    Plots a matrix of spatial bias maps:
+    Rows = different threshold types (precipitation indices),
+    Columns = Raw + multiple correction methods.
 
     Parameters:
-        valid_coords (list of tuples): List of (lat, lon) coordinates.
-        mean_bias_values_array (tuple or dict): 
-            - If tuple: (raw, corrected_1, corrected_2, ...).
-            - If dict: {"Category 1": (raw, corrected_1, corrected_2, ...), "Category 2": ...}.
-        threshold_type (str or None): Category name for the title (e.g., "Low Rain"). If None, uses "Overall".
-        label (str): Colorbar label.
-        method_names (list, optional): Names of bias correction methods (e.g., ["Quantile Mapping", "Neural Network"]).
-        vmin, vmax (float, optional): Minimum and maximum color limits for color consistency.
-        fig (matplotlib.figure.Figure, optional): External figure object for subplots.
-        axes (array of matplotlib.axes.Axes, optional): External axes array for subplots.
+        valid_coords: list of (lat, lon) coordinates.
+        bias_data_dict: dict, with keys = threshold types, values = tuples of (raw, method1, method2, ...)
+        threshold_types: list of keys to include (row order).
+        label: label for colorbar.
+        method_names: optional list of correction method names (columns after Raw).
+        vmin, vmax: color limits for the plots.
+        cmap: matplotlib colormap.
     """
 
-    lats, lons = zip(*valid_coords)  # Extract latitudes and longitudes
+    lats, lons = zip(*valid_coords)
 
-    if isinstance(mean_bias_values_array, dict):
-        mean_bias_values_list = mean_bias_values_array[threshold_type]  # Extract specific threshold values
-    else:
-        mean_bias_values_list = mean_bias_values_array  # Use the provided tuple
-
-    # Determine the number of methods dynamically
-    num_methods = len(mean_bias_values_list)  # Includes Raw + Methods
+    num_rows = len(threshold_types)
+    num_methods = len(next(iter(bias_data_dict.values())))  # Length of (raw, method1, method2, ...)
     method_labels = ["Raw"] + (method_names if method_names else [f"Method {i+1}" for i in range(num_methods - 1)])
 
-    # Create a figure & axes only if they are not provided (standalone mode)
-    if axes is None:
-        fig, axes = plt.subplots(1, num_methods, figsize=(6 * num_methods, 5), sharex=True, sharey=True)
+    fig, axes = plt.subplots(num_rows, num_methods, figsize=(6 * num_methods, 3 * num_rows), sharex=True, sharey=True)
 
-    # Convert to an array if a single axis is passed
-    if num_methods == 1:
-        axes = [axes]
-
-    # Set a super title only if this is a standalone plot
-    if fig is not None:
-        fig.suptitle(threshold_type if threshold_type else "Overall", fontsize=16, fontweight="bold")
-    
-    # Keep track of the last scatter plot for colorbar reference
+    axes = np.atleast_2d(axes)
     last_scatter = None
 
-    for ax, mean_bias_values, title in zip(axes, mean_bias_values_list, method_labels):
-        # Initialize Basemap for each subplot
-        m = Basemap(projection="merc",
-                    llcrnrlat=min(lats) - 1, urcrnrlat=max(lats) + 1,
-                    llcrnrlon=min(lons) - 1, urcrnrlon=max(lons) + 1,
-                    resolution="i", ax=ax)
+    for i, threshold_type in enumerate(threshold_types):
+        bias_list = bias_data_dict[threshold_type]
 
-        m.drawcoastlines()
-        m.drawcountries()
+        for j, (bias, title) in enumerate(zip(bias_list, method_labels)):
+            ax = axes[i, j]
+            m = Basemap(projection="merc",
+                        llcrnrlat=min(lats) - 1, urcrnrlat=max(lats) + 1,
+                        llcrnrlon=min(lons) - 1, urcrnrlon=max(lons) + 1,
+                        resolution="i", ax=ax)
+            m.drawcoastlines()
+            m.drawcountries()
+            x, y = m(lons, lats)
+            last_scatter = m.scatter(x, y, c=bias, cmap=cmap, marker="o", edgecolor="k",
+                                     alpha=0.75, vmin=vmin, vmax=vmax)
 
-        x, y = m(lons, lats)
-        last_scatter = m.scatter(x, y, c=mean_bias_values, cmap="coolwarm", marker="o", edgecolor="k", alpha=0.75, vmin=vmin, vmax=vmax)
+            if i == 0:
+                ax.set_title(title, fontsize=13)
+            if j == 0:
+                ax.text(-0.1, 0.5, threshold_type, va="center", ha="right",
+                        transform=ax.transAxes, fontsize=12, fontweight="bold", rotation=90)
 
-        ax.set_title(title, fontsize=12, fontweight="bold")
+    # Shared colorbar
+    cbar_ax = fig.add_axes([0.87, 0.15, 0.015, 0.7])
+    cbar = fig.colorbar(last_scatter, cax=cbar_ax)
+    cbar.set_label(label, fontsize=12)
 
-    # Add colorbar only if this is a standalone figure
-    if fig is not None and last_scatter is not None:
-        cbar_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7])  # Manually position colorbar
-        cbar = fig.colorbar(last_scatter, cax=cbar_ax)
-        cbar.set_label(label, fontsize=12)
+    fig.suptitle("Spatial Bias Across Precipitation Indices", fontsize=15, fontweight="bold")
+    plt.tight_layout(rect=[0, 0, 0.86, 0.95])
+    plt.show()
 
-    # Adjust layout if this is a standalone figure
-    if fig is not None:
-        # plt.tight_layout(rect=[0, 0, 1, 0.95])  # Adjust layout to fit title
-        plt.show()
+
 
 # Function to plot Moran Scatter Plot
 def plot_moran_scatter(values, valid_coords, k=5):
