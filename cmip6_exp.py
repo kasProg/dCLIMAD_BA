@@ -19,15 +19,23 @@ from model.benchmark import BiasCorrectionBenchmark
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
 torch.manual_seed(42)
-cuda_device = 0
-device = torch.device(f"cuda:{cuda_device}" if torch.cuda.is_available() else "cpu")
+cuda_device = 0  # could be 'cpu' or an integer like '0', '1', etc.
+
+if cuda_device == 'cpu':
+    device = torch.device('cpu')
+else:
+    if torch.cuda.is_available():
+        device = torch.device(f'cuda:{cuda_device}')
+    else:
+        raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
+
 logging = True
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
 
-clim = 'ensemble'
+clim = 'ipsl_cm6a_lr'
 ref = 'livneh'
-train = False
+train = True
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
@@ -37,21 +45,21 @@ input_attrs = {'elevation': ['elev', 'elevation']}
 
 
 ### FOR TREND ANALYSIS
-trend_analysis = False
+trend_analysis = True
 scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
 
 train_period = [1950, 1980]
-test_period = [1991, 2014]
-epochs = 200
+test_period = [1981, 1995]
+epochs = 100
 testepoch = 50
 benchmarking = True
 
 # model params
 model_type = 'ANN' #[SST, Poly2]
 # resume = False
-degree = 2 # degree of transformation
+degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
 emph_quantile = 0.5
 
@@ -93,7 +101,7 @@ os.makedirs(save_path, exist_ok=True)
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, target_y=target_y, save_path=save_path, stat_save_path = model_save_path,
-    crd='all', batch_size=100, train=train, device=cuda_device)
+    crd='all', batch_size=100, train=train, device=device)
 
 dataloader = data_loader.get_dataloader()
 
@@ -103,7 +111,7 @@ if not train and trend_analysis:
     data_loader_future = DataLoaderWrapper(
     clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, target_y={}, save_path=future_save_path, stat_save_path = model_save_path, 
-    crd='all', batch_size=100, train=train, device=cuda_device)
+    crd='all', batch_size=100, train=train, device=device)
 
     dataloader_future = data_loader_future.get_dataloader_future()
 

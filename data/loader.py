@@ -27,7 +27,7 @@ class DataLoaderWrapper:
         self.batch_size = batch_size
         self.train=train
 
-        self.device = torch.device(f"cuda:{device}" if torch.cuda.is_available() else "cpu")
+        self.device = device
 
         
         self.save_path = save_path
