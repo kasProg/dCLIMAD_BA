@@ -42,9 +42,9 @@ class DataLoaderWrapper:
 
         self.attrs_data = self.load_attrs()
         self.x_data, self.time_x = self.load_dynamic_inputs()
-        if self.scenario=='historical':
-            self.y_data = self.load_y_data()
-        
+        if self.scenario=='historical' or self.ref != 'livneh':
+            self.y_data, time_y = self.load_y_data()
+
         self.attr_tensor = self.get_attr_tensor()
         self.input_norm_tensor = self.normalize_data()
 
@@ -54,9 +54,16 @@ class DataLoaderWrapper:
             y_clim = 'access_cm2'
         else:
             y_clim = self.clim
-        ds_sample = xr.open_dataset(f"{self.ref_path}/precipitation/{y_clim}/prec.1980.nc")
-        return valid_crd.valid_lat_lon(ds_sample)
-
+        
+        if self.ref == 'livneh':
+            ds_sample = xr.open_dataset(f"{self.ref_path}/precipitation/{y_clim}/prec.1980.nc")
+            return valid_crd.valid_lat_lon(ds_sample)
+        else:
+            ## perfect model framework
+            # ds_sample = xr.open_dataset(f"{self.ref_path}/historical/precipitation/{y_clim}/clipped_US.nc")
+            ds_sample = xr.open_dataset(f"{self.cmip6_dir}/{self.clim}/historical/precipitation/clipped_US.nc")
+            return valid_crd.valid_lat_lon(ds_sample, var_name='pr')
+    
     def load_attrs(self):
         """Loads static attributes (elevation, land type, etc.)."""
         attrs_data = {}
@@ -114,23 +121,62 @@ class DataLoaderWrapper:
         return x_data.to(torch.float32), time_x
 
     def load_y_data(self):
-        """Loads reference data (Livneh)."""
-        print("Processing y data...")
         y_data = []
-        for var, possible_vars in self.target_y.items():
-            print(f'Processing y: Reference {var}...')
-            if self.clim ==  'ensemble':
-                y_clim = 'access_cm2'
-            else:
-                y_clim = self.clim
-            path = os.path.join(self.ref_path, f'{var}/{y_clim}')
-            y = process.process_multi_year_data(path, self.period, self.valid_coords, 
-                                                self.crd, self.device, var=(var, possible_vars))           
-            y_data.append(y.unsqueeze(-1))
+        print("Processing y data...")
+        if self.ref == 'livneh':
+            """Loads reference data (Livneh)."""
+            for var, possible_vars in self.target_y.items():
+                print(f'Processing y: Reference {var}...')
+                if self.clim ==  'ensemble':
+                    y_clim = 'access_cm2'
+                else:
+                    y_clim = self.clim
+                path = os.path.join(self.ref_path, f'{var}/{y_clim}')
+                y = process.process_multi_year_data(path, self.period, self.valid_coords, 
+                                                    self.crd, self.device, var=(var, possible_vars))           
+                y_data.append(y.unsqueeze(-1))
+                
+            y_data = torch.cat(y_data, dim=-1)
+            torch.save(y_data, f'{self.save_path}/y.pt')
+            return y_data.to(self.x_data.dtype), 'nil'
+        else:
+            ### Used for Perfect Model Framework
+            time_y = None
+            for var, possible_vars in self.target_y.items():
+                print(f"Processing y: Climate {var}...")
+
+                # Open the NetCDF file (assuming a generic variable name for directory structure)
+                ds = xr.open_dataset(f"{self.ref_path}/{self.scenario}/{var}/{self.clim}/clipped_US.nc")
+                # Find the first available variable from the list
+                matched_var = next((v for v in possible_vars if v in ds.variables), None)
+
+                unit_identifier = UnitManager(ds)
+                units = unit_identifier.get_units()            
             
-        y_data = torch.cat(y_data, dim=-1)
-        torch.save(y_data, f'{self.save_path}/y.pt')
-        return y_data.to(self.x_data.dtype)
+                if matched_var:
+                    print(f"Using '{matched_var}' for '{var}'")
+                    y_var = ds[matched_var].sel(
+                        lat=xr.DataArray(self.valid_coords[:, 0], dims='points'),
+                        lon=xr.DataArray(self.valid_coords[:, 1], dims='points'),
+                        method='nearest'
+                    ).sel(time=slice(f"{self.period[0]}", f"{self.period[1]}"))
+                    time_y = y_var.time.values
+                    y_var = y_var.values
+
+                    #managing units
+                    y_var = unit_identifier.convert(y_var, var, units[matched_var]) 
+
+                    y_var = torch.tensor(y_var).to(self.device)
+                    y_data.append(y_var.unsqueeze(-1))
+                        
+                else:
+                    print(f"Variable '{var}' not found in the Climate NetCDF file. Available variables: {list(ds.variables.keys())}")
+
+            y_data = torch.cat(y_data, dim=-1)
+            torch.save(time_y, f'{self.save_path}/time_y.pt')
+            torch.save(y_data, f'{self.save_path}/y.pt')
+
+            return y_data.to(torch.float32), time_y
 
     def get_attr_tensor(self):
         """Creates a tensor for static attributes."""

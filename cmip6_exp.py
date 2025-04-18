@@ -15,6 +15,7 @@ from ibicus.evaluate import assumptions, correlation, marginal, multivariate, tr
 from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
 from model.benchmark import BiasCorrectionBenchmark
+import data.valid_crd as valid_crd
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
@@ -33,7 +34,7 @@ logging = True
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
 
-clim = 'ipsl_cm6a_lr'
+clim = 'mpi_esm1_2_lr'
 ref = 'livneh'
 train = True
 
@@ -52,8 +53,8 @@ trend_future_period = [2075, 2099]
 
 train_period = [1950, 1980]
 test_period = [1981, 1995]
-epochs = 100
-testepoch = 50
+epochs = 300
+testepoch = 200
 benchmarking = True
 
 # model params
@@ -61,7 +62,7 @@ model_type = 'ANN' #[SST, Poly2]
 # resume = False
 degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
-emph_quantile = 0.5
+emph_quantile = 0.9
 
 ## loss params
 w1 = 1
@@ -240,8 +241,8 @@ else:
    
 
     transformed_x = torch.cat(transformed_x, dim=0).numpy().T
-    # transformed_x_nc = valid_crd.reconstruct_nc(transformed_x/86400, valid_coords, time_x, input_x['precipitation'][0])
-    # transformed_x_nc.to_netcdf(f'{test_save_path}/xt.nc')
+    transformed_x_nc = valid_crd.reconstruct_nc(transformed_x, valid_coords, time_x, input_x['precipitation'][0])
+    transformed_x_nc.to_netcdf(f'{test_save_path}/xt.nc')
     x = torch.cat(x, dim=0).numpy().T
     y = torch.cat(y, dim=0).numpy().T        
     
@@ -318,19 +319,19 @@ else:
                                                                 raw = x, 
                                                                 QM = QM_debiased,
                                                                 LOCA2 = loca, 
-                                                                diffDownscale = transformed_x)
+                                                                delCLIMD_BA = transformed_x)
 
         spatiotemporal_dry = dry_days.calculate_spatiotemporal_clusters(obs = y,
                                                                 raw = x, 
                                                                 QM = QM_debiased,
                                                                 LOCA2 = loca,
-                                                                diffDownscale = transformed_x)
+                                                               delCLIMD_BA = transformed_x)
 
         spatial_dry = dry_days.calculate_spatial_extent(obs = y,
                                                         raw = x, 
                                                         QM = QM_debiased,
                                                         LOCA2 = loca,
-                                                        diffDownscale = transformed_x)
+                                                        delCLIMD_BA = transformed_x)
 
         spatiotemporal_fig = marginal.plot_spatiotemporal(data = [spelllength_dry, spatiotemporal_dry, spatial_dry])
 
@@ -380,7 +381,7 @@ else:
                                                                 metrics = pr_metrics,
                                                         QM = [QM_debiased, QM_debiased_future],
                                                         LOCA2 = [loca, loca_future],
-                                                                diffDownscale = [transformed_x, transformed_x_future])
+                                                                delCLIMD_BA = [transformed_x, transformed_x_future])
 
             trend_plot = trend.plot_future_trend_bias_boxplot(variable ='pr', 
                                                             bias_df = trend_bias_data, 
