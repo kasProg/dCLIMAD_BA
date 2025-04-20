@@ -18,15 +18,15 @@ from data.helper import interpolate_time_slice
 ########------THIS CODE REGRIDS CLIMATE-MODEL TO CLIMATE-MODEL RESOLUTION-------##########
 
 cmip6_dir = "/pscratch/sd/k/kas7897/cmip6"
-obs_path = f"{cmip6_dir}/gfdl_esm4/historical/precipitation/loca/coarse_USclip.nc"
+obs_path = f"{cmip6_dir}/gfdl_esm4/historical/precipitation/coarse_USclip.nc"
 # obs_year_range = [1950, 2014]
 
 clim_models = ['ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr', 'mri_esm2_0', 'access_cm2']
 for clim in clim_models:
 
-    clim_path = f'{cmip6_dir}/{clim}/historical/precipitation/loca/coarse_USclip.nc'
+    clim_path = f'{cmip6_dir}/{clim}/historical/precipitation/coarse_USclip.nc'
     
-    save_path = f'{cmip6_dir}/gfdl_esm4/historical/precipitation/loca/{clim}'
+    save_path = f'{cmip6_dir}/gfdl_esm4/historical/precipitationde/{clim}'
     os.makedirs(save_path, exist_ok=True)
 
     # for year in range(obs_year_range[0], obs_year_range[1]+1):

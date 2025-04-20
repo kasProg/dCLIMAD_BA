@@ -1,10 +1,15 @@
+import sys
+import os
+
+# Add the parent directory of perfect_model to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import torch
 import torch.optim as optim
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import xarray as xr
 from torch.utils.tensorboard import SummaryWriter
-import os
 import pandas as pd
 import numpy as np
 from model.model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
@@ -17,7 +22,7 @@ from data.loader import DataLoaderWrapper
 from model.benchmark import BiasCorrectionBenchmark
 import data.valid_crd as valid_crd
 
-###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
+###-----The is Perfect Model Framework for CMIP6-GFDL_ESM4 Bias Adjustment-----###
 
 torch.manual_seed(42)
 cuda_device = 0  # could be 'cpu' or an integer like '0', '1', etc.
@@ -92,7 +97,7 @@ else:
 save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}/{num}/{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if not train:
-    save_path =  save_path + f'{test_period[0]}_{test_period[1]}/'
+    save_path =  save_path + f'historical_{test_period[0]}_{test_period[1]}/'
     test_save_path = save_path + f'ep{testepoch}'
     os.makedirs(test_save_path, exist_ok=True)
 
@@ -108,7 +113,8 @@ dataloader = data_loader.get_dataloader()
 
 if not train and trend_analysis:
     future_save_path = model_save_path + f'{scenario}_{trend_future_period[0]}_{trend_future_period[1]}/'
-    os.makedirs(future_save_path, exist_ok=True)
+    test_future_save_path  = future_save_path + f'ep{testepoch}'
+    os.makedirs(test_future_save_path, exist_ok=True)
     data_loader_future = DataLoaderWrapper(
     clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, target_y=target_y, save_path=future_save_path, stat_save_path = model_save_path, 
@@ -343,7 +349,7 @@ else:
 
         if trend_analysis:
             transformed_x_future = torch.cat(transformed_x_future, dim=0).numpy().T
-            torch.save(transformed_x_future, f'{future_save_path}/xt.pt')
+            torch.save(transformed_x_future, f'{test_future_save_path}/xt.pt')
             x_future = torch.cat(x_future, dim=0).numpy().T
             y_future = torch.cat(y_future, dim=0).numpy().T        
 
@@ -396,7 +402,7 @@ else:
                                                             remove_outliers = True,
                                                                     outlier_threshold = 500)
             
-            trend_plot.savefig(f'{future_save_path}/ibicus_fig2.png')
+            trend_plot.savefig(f'{test_future_save_path}/ibicus_fig2.png')
 
 
             pr_marginal_bias_data_future = marginal.calculate_marginal_bias(metrics = pr_metrics, 
@@ -415,7 +421,7 @@ else:
                                                             metrics_title = 'Percentage bias [days]',
                                                             statistics_title = 'Percentage bias')
 
-            pr_marginal_bias_plot_future.savefig(f'{future_save_path}/ibicus_fig.png')
+            pr_marginal_bias_plot_future.savefig(f'{test_future_save_path}/ibicus_fig.png')
 
             spelllength_dry_future = dry_days.calculate_spell_length(minimum_length= 3, obs = y_future,
                                                                     raw = x_future, 
@@ -437,7 +443,7 @@ else:
 
             spatiotemporal_fig_future = marginal.plot_spatiotemporal(data = [spelllength_dry_future, spatiotemporal_dry_future, spatial_dry_future])
 
-            spatiotemporal_fig_future.savefig(f'{future_save_path}/ibicus_fig1.png')
+            spatiotemporal_fig_future.savefig(f'{test_future_save_path}/ibicus_fig1.png')
 
         if logging:
             writer.add_text(
