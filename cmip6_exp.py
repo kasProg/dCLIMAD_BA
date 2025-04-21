@@ -20,7 +20,7 @@ import data.valid_crd as valid_crd
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
 torch.manual_seed(42)
-cuda_device = 0  # could be 'cpu' or an integer like '0', '1', etc.
+cuda_device = 'cpu'  # could be 'cpu' or an integer like '0', '1', etc.
 
 if cuda_device == 'cpu':
     device = torch.device('cpu')
@@ -62,6 +62,7 @@ model_type = 'ANN' #[SST, Poly2]
 # resume = False
 degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
+scale = 'monthly'
 emph_quantile = 0.9
 
 ## loss params
@@ -121,11 +122,28 @@ _, time_x = data_loader.load_dynamic_inputs()
 num_series = valid_coords.shape[0]
 nx = len(input_x)+ len(input_attrs)
 
+time_series = pd.to_datetime(time_x)
 
-if model_type == 'ANN':
-    model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType='ANN').to(device)
-else:
-    model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
+
+if scale=='monthly':
+    labels = time_series.to_period("M")
+    # Create a DataFrame indexer for time
+elif scale == 'seasonal':
+    def get_season(month):
+        return {
+            12: "DJF", 1: "DJF", 2: "DJF",
+            3: "MAM", 4: "MAM", 5: "MAM",
+            6: "JJA", 7: "JJA", 8: "JJA",
+            9: "SON", 10: "SON", 11: "SON"
+        }[month]
+
+    labels = time_series.month.map(get_season)
+elif scale == 'daily':
+    labels = scale
+
+
+
+model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType=model_type, scale=labels).to(device)
 
 
 # if resume:
