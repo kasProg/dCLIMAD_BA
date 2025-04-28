@@ -20,7 +20,7 @@ import data.valid_crd as valid_crd
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
 torch.manual_seed(42)
-cuda_device = 'cpu'  # could be 'cpu' or an integer like '0', '1', etc.
+cuda_device = 0  # could be 'cpu' or an integer like '0', '1', etc.
 
 if cuda_device == 'cpu':
     device = torch.device('cpu')
@@ -34,9 +34,9 @@ logging = True
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
 
-clim = 'mpi_esm1_2_lr'
+clim = 'miroc6'
 ref = 'livneh'
-train = True
+train = False
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
@@ -46,15 +46,15 @@ input_attrs = {'elevation': ['elev', 'elevation']}
 
 
 ### FOR TREND ANALYSIS
-trend_analysis = True
+trend_analysis = False
 scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
 
 train_period = [1950, 1980]
 test_period = [1981, 1995]
-epochs = 300
-testepoch = 200
+epochs = 500
+testepoch = 50
 benchmarking = True
 
 # model params
@@ -62,7 +62,7 @@ model_type = 'ANN' #[SST, Poly2]
 # resume = False
 degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
-scale = 'monthly'
+scale = 'seasonal'
 emph_quantile = 0.9
 
 ## loss params
@@ -82,7 +82,7 @@ attrLst =input_attrs.keys()
 ###-------- Developer section here -----------###
 
 if logging:
-    exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}'
+    exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{scale}'
     writer = SummaryWriter(f"runs/{exp}")
 
 if train:
@@ -90,7 +90,7 @@ if train:
 else:
     period = test_period
 
-save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}/{num}/{train_period[0]}_{train_period[1]}/'
+save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{scale}/{num}/{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if not train:
     save_path =  save_path + f'{test_period[0]}_{test_period[1]}/'

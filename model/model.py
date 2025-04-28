@@ -70,8 +70,6 @@ class QuantileMappingModel(nn.Module):
             label_avg = torch.einsum('stp,tm->smp', params, weights)  # (sites, months, params)
             params = torch.einsum('tm,smp->stp', weights, label_avg)  # shape: (sites, time, params)
 
-
-            
         scales = [torch.exp(params[:, :, i]) for i in range(self.degree)]  # Ensure positive scaling
         shift = params[:, :, self.degree]
         # threshold = torch.sigmoid(params[:, :, self.degree + 1])  # Between 0 and 1
