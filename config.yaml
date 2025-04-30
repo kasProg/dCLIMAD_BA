@@ -8,10 +8,12 @@ sweep:
 
 
 fixed:
+  cmip_dir: '/pscratch/sd/k/kas7897/cmip6'
+  ref_dir: '/pscratch/sd/k/kas7897/Livneh/unsplit/'
   train_start: 1950
   train_end: 1980
-  test_start: 1981
-  test_end: 1995
+  val_start: 1981
+  val_end: 1995
   trend_start: 2075
   trend_end: 2099
   epochs: 400

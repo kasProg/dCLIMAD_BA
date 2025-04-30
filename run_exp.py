@@ -1,34 +1,26 @@
 import torch
 import torch.optim as optim
-import torch.nn as nn
-import matplotlib.pyplot as plt
-import xarray as xr
 from torch.utils.tensorboard import SummaryWriter
 import os
-import pandas as pd
-import numpy as np
 from model.model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
 from model.loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
-import data.process as process
-from sklearn.preprocessing import StandardScaler
-from ibicus.evaluate import assumptions, correlation, marginal, multivariate, trend
 from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
-from model.benchmark import BiasCorrectionBenchmark
-import data.valid_crd as valid_crd
 import argparse
 import yaml
 import data.helper as helper
+import datetime
+import os
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
-
 
 parser = argparse.ArgumentParser(description='Quantile Mapping Model Configuration')
 
 parser.add_argument('--cuda_device', type=str, default='0')
 parser.add_argument('--logging', action='store_true')
 parser.add_argument('--clim', type=str, default='miroc6')
-parser.add_argument('--ref', type=str, default='livneh')
+parser.add_argument('--clim_dir', type=str)
+parser.add_argument('--ref_dir', type=str)
 parser.add_argument('--train', action='store_true')
 parser.add_argument('--validation', action='store_true')
 parser.add_argument('--model_type', type=str, default='ANN')
@@ -44,9 +36,9 @@ parser.add_argument('--trend_analysis', action='store_true')
 parser.add_argument('--benchmarking', action='store_true')
 parser.add_argument('--train_start', type=int, default=1950)
 parser.add_argument('--train_end', type=int, default=1980)
-parser.add_argument('--test_start', type=int, default=1981)
-parser.add_argument('--test_end', type=int, default=1995)
-parser.add_argument('--scneario', type=str, default='ssp5_8_5')
+parser.add_argument('--val_start', type=int, default=1981)
+parser.add_argument('--val_end', type=int, default=1995)
+parser.add_argument('--scenario', type=str, default='ssp5_8_5')
 parser.add_argument('--trend_start', type=int, default=2075)
 parser.add_argument('--trend_end', type=int, default=2099)
 
@@ -59,20 +51,17 @@ cuda_device = args.cuda_device
 logging = args.logging
 
 
+cmip6_dir = args.cmip6_dir
+ref_path = args.ref_dir
+
 clim = args.clim
 ref = args.ref
 train = args.train
 validation = args.validation
 
 
-### FOR TREND ANALYSIS
-trend_analysis = args.trend_analysis
-scenario = 'ssp5_8_5'
-trend_future_period = [args.trend_start, args.trend_analysis]
-
-
 train_period = [args.train_start, args.train_end]
-test_period = [args.test_start, args.test_end]
+val_period = [args.val_start, args.val_end]
 epochs = args.epochs
 testepoch = args.testepoch
 benchmarking = args.benchmarking
@@ -94,19 +83,6 @@ batch_size = args.batch_size
 
 
 ####------FIXED INPUTS------------####
-
-if cuda_device == 'cpu':
-    device = torch.device('cpu')
-else:
-    if torch.cuda.is_available():
-        device = torch.device(f'cuda:{cuda_device}')
-    else:
-        raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
-
-
-cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
-ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
-
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
 target_y = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
@@ -121,40 +97,37 @@ seriesLst = input_x.keys()
 attrLst =input_attrs.keys()
 
 
-###-------- Developer section here -----------###
+###------------ Developer section here --------------###
+if cuda_device == 'cpu':
+    device = torch.device('cpu')
+else:
+    if torch.cuda.is_available():
+        device = torch.device(f'cuda:{cuda_device}')
+    else:
+        raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
 if logging:
     exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}'
     writer = SummaryWriter(f"runs/{exp}")
 
-if train:
-    period = train_period
-else:
-    period = test_period
 
 save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{num}/{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if validation:
-    val_save_path =  save_path + f'{test_period[0]}_{test_period[1]}/'
-
+    val_save_path =  save_path + f'{val_period[0]}_{val_period[1]}/'
     # test_save_path = val_save_path + f'ep{testepoch}'
     os.makedirs(val_save_path, exist_ok=True)
-    
-    args_dict = vars(args)  # Converts argparse Namespace into a dictionary
-    with open(os.path.join(val_save_path, "test_config.yaml"), "w") as f:
-        yaml.dump(args_dict, f)
-
 
 os.makedirs(save_path, exist_ok=True)
+
 # Save current arguments into config.yaml inside save_path
-if train:
-    args_dict = vars(args)  # Converts argparse Namespace into a dictionary
-    with open(os.path.join(save_path, "train_config.yaml"), "w") as f:
-        yaml.dump(args_dict, f)
+args_dict = vars(args)  # Converts argparse Namespace into a dictionary
+with open(os.path.join(save_path, "train_config.yaml"), "w") as f:
+    yaml.dump(args_dict, f)
 
 
 data_loader = DataLoaderWrapper(
-    clim=clim, scenario='historical', ref=ref, period=period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
+    clim=clim, scenario='historical', ref=ref, period=train_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, target_y=target_y, save_path=save_path, stat_save_path = model_save_path,
     crd='all', batch_size=batch_size, train=train, device=device)
 
@@ -162,45 +135,23 @@ dataloader = data_loader.get_dataloader()
 
 if validation:
     data_loader_val = DataLoaderWrapper(
-    clim=clim, scenario='historical', ref=ref, period=test_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
+    clim=clim, scenario='historical', ref=ref, period=val_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, target_y=target_y, save_path=val_save_path, stat_save_path = model_save_path,
     crd='all', batch_size=batch_size, train=train, device=device)
 
     dataloader_val = data_loader_val.get_dataloader()
 
 
-if not train and trend_analysis:
-    future_save_path = model_save_path + f'{scenario}_{trend_future_period[0]}_{trend_future_period[1]}/'
-    os.makedirs(future_save_path, exist_ok=True)
-    data_loader_future = DataLoaderWrapper(
-    clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
-    input_x=input_x, input_attrs=input_attrs, target_y={}, save_path=future_save_path, stat_save_path = model_save_path, 
-    crd='all', batch_size=100, train=train, device=device)
-
-    dataloader_future = data_loader_future.get_dataloader_future()
-    with open(os.path.join(future_save_path, "future_config.yaml"), "w") as f:
-        yaml.dump(args_dict, f)
-
-valid_coords = data_loader.get_valid_coords()
-_, time_x = data_loader.load_dynamic_inputs()
-nx = len(input_x)+ len(input_attrs)
-
-if time_scale!= 'daily':
-    time_labels = helper.extract_time_labels(time_x, label_type=time_scale)
-    if validation:
-        _, time_x_val = data_loader_val.load_dynamic_inputs()
-        time_labels_val = helper.extract_time_labels(time_x_val, label_type=time_scale)
+if time_scale == 'daily':
+    time_labels = time_labels_val = 'daily'
 else:
-    time_labels = 'daily'
-    time_labels_val = 'daily'
+    time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
+    time_labels_val = helper.extract_time_labels(data_loader_val.load_dynamic_inputs()[1], label_type=time_scale) if validation else None
 
 
+nx = len(input_x)+ len(input_attrs)
 model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
-
-# if resume:
-#     state_dict = torch.load(f'{save_path}model_{testepoch}.pth', map_location=device, weights_only=True)
-#     model.load_state_dict(state_dict)
     
 optimizer = optim.Adam(model.parameters(), lr=0.01)
 balance_loss = 0  # Adjust this weight to balance between distributional and rainy day losses
@@ -264,7 +215,7 @@ for epoch in range(num_epochs+1):
         print(f'Epoch {epoch}, Average Loss: {avg_epoch_loss:.4f}, Average Loss1: {avg_epoch_loss1:.4f}, Average Loss2: {avg_epoch_loss2:.4f}, Average Loss3: {avg_epoch_loss3:.4f}')
         torch.save(model.state_dict(), f'{save_path}/model_{epoch}.pth')
         
-        # ====== 🔥 VALIDATION SECTION 🔥 ======
+        # ====== VALIDATION SECTION ====== #
         if validation:
             model.eval()
             val_epoch_loss = 0
@@ -289,3 +240,7 @@ for epoch in range(num_epochs+1):
             
                 print(f"Epoch {epoch}: Validation Loss = {avg_val_loss:.4f}")
 
+# Save finished.txt to mark successful completion
+finished_file = os.path.join(model_save_path, "finished.txt")
+with open(finished_file, "w") as f:
+    f.write(f"Finished successfully at {datetime.datetime.now()}\n")
