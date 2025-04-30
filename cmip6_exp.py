@@ -16,6 +16,7 @@ from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
 from model.benchmark import BiasCorrectionBenchmark
 import data.valid_crd as valid_crd
+import data.helper as helper
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
@@ -34,9 +35,9 @@ logging = True
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
 
-clim = 'miroc6'
+clim = 'access_cm2'
 ref = 'livneh'
-train = False
+train = True
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
@@ -62,7 +63,7 @@ model_type = 'ANN' #[SST, Poly2]
 # resume = False
 degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
-scale = 'seasonal'
+time_scale = 'season'
 emph_quantile = 0.9
 
 ## loss params
@@ -82,7 +83,7 @@ attrLst =input_attrs.keys()
 ###-------- Developer section here -----------###
 
 if logging:
-    exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{scale}'
+    exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}'
     writer = SummaryWriter(f"runs/{exp}")
 
 if train:
@@ -90,7 +91,7 @@ if train:
 else:
     period = test_period
 
-save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{scale}/{num}/{train_period[0]}_{train_period[1]}/'
+save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{num}/{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if not train:
     save_path =  save_path + f'{test_period[0]}_{test_period[1]}/'
@@ -119,31 +120,12 @@ if not train and trend_analysis:
 
 valid_coords = data_loader.get_valid_coords()
 _, time_x = data_loader.load_dynamic_inputs()
-num_series = valid_coords.shape[0]
 nx = len(input_x)+ len(input_attrs)
 
-time_series = pd.to_datetime(time_x)
+if time_scale!= 'daily':
+    time_scale = helper.extract_time_labels(time_x, label_type=time_scale)
 
-
-if scale=='monthly':
-    labels = time_series.to_period("M")
-    # Create a DataFrame indexer for time
-elif scale == 'seasonal':
-    def get_season(month):
-        return {
-            12: "DJF", 1: "DJF", 2: "DJF",
-            3: "MAM", 4: "MAM", 5: "MAM",
-            6: "JJA", 7: "JJA", 8: "JJA",
-            9: "SON", 10: "SON", 11: "SON"
-        }[month]
-
-    labels = time_series.month.map(get_season)
-elif scale == 'daily':
-    labels = scale
-
-
-
-model = QuantileMappingModel(nx=nx, degree=degree, num_series=num_series, hidden_dim=64, num_layers=layers, modelType=model_type, scale=labels).to(device)
+model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
 
 # if resume:
@@ -173,7 +155,7 @@ if train:
             batch_y = batch_y.to(device)
 
             # Forward pass
-            transformed_x = model(batch_x, batch_input_norm)
+            transformed_x = model(batch_x, batch_input_norm, time_scale = time_scale)
 
             # Compute the loss
             # kl_loss = 0.699*kl_divergence_loss(transformed_x.T, batch_y.T, num_bins=1000)

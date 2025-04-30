@@ -214,3 +214,35 @@ class UnitManager:
 
 # Extracted metadata
 # print(unit_identifier.get_units())
+
+def get_season(month):
+    return {
+        12: "DJF", 1: "DJF", 2: "DJF",
+        3: "MAM", 4: "MAM", 5: "MAM",
+        6: "JJA", 7: "JJA", 8: "JJA",
+        9: "SON", 10: "SON", 11: "SON"
+    }[month]
+
+def extract_time_labels(time_array, label_type='month'):
+    """
+    Extracts labels from time_array for grouping:
+    - 'month': groups all Januaries together (ignores year)
+    - 'year-month': unique for each calendar month
+    - 'season': DJF, MAM, JJA, SON
+    """
+    try:
+        dt = pd.to_datetime(time_array)
+        if label_type == 'month':
+            return dt.month.astype(str).str.zfill(2).tolist()  # '01', '02', ...
+        elif label_type == 'season':
+            return dt.month.map(get_season).tolist()
+        elif label_type == 'year-month':
+            return dt.to_period("M").astype(str).tolist()
+    except (TypeError, ValueError):
+        # For cftime or non-standard calendars
+        if label_type == 'month':
+            return [f"{t.month:02d}" for t in time_array]  # '01', '02', ...
+        elif label_type == 'season':
+            return [get_season(t.month) for t in time_array]
+        elif label_type == 'year-month':
+            return [f"{t.year}-{t.month:02d}" for t in time_array]

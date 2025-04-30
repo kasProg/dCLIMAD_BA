@@ -13,11 +13,9 @@ import pandas as pd
 import numpy as np
 
 class QuantileMappingModel(nn.Module):
-    def __init__(self, nx=1, num_series=100, hidden_dim=64, num_layers=2, modelType='ANN', degree=2, scale='daily'):
+    def __init__(self, nx=1, hidden_dim=64, num_layers=2, modelType='ANN', degree=2):
         super(QuantileMappingModel, self).__init__()
-        self.num_series = num_series
         self.degree = degree
-        self.scale = scale
 
         # Automatically calculate ny: degree scales + 1 shift + 1 threshold
         ny = degree + 1 
@@ -52,7 +50,7 @@ class QuantileMappingModel(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x, input_tensor):
+    def forward(self, x, input_tensor, time_scale):
         # Generate transformation parameters
         if self.model_type == "LSTM":
             # LSTM forward pass
@@ -63,8 +61,8 @@ class QuantileMappingModel(nn.Module):
             params = self.transform_generator(input_tensor)
 
         # Extract scale and shift parameters dynamically based on degree
-        if str(self.scale) != 'daily':
-            label_dummies = pd.get_dummies(self.scale)
+        if str(time_scale) != 'daily':
+            label_dummies = pd.get_dummies(time_scale)
             weights_np = label_dummies.div(label_dummies.sum(axis=0), axis=1).values.astype(np.float32)
             weights = torch.tensor(weights_np, device=params.device)  # shape (time, n_months)
             label_avg = torch.einsum('stp,tm->smp', params, weights)  # (sites, months, params)

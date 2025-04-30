@@ -8,6 +8,7 @@ fno.py
 fig.png
 benchmark
 runs
+runs_old
 down_cds.py
 elev_gfdlESM4.nc
 models
@@ -19,6 +20,7 @@ elevation_data
 runs_sh
 models_ibicus
 ibicus_exps
+jobs_old
 jobs
 cmip6_exp_depricate.py
 kas7897
