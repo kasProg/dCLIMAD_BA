@@ -20,8 +20,13 @@ param_combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
 print(f"Total jobs: {len(param_combinations)}")
 
-def launch_job(params, gpu_id):
-    command = ["python", "run_exp.py"]
+if config['fixed']['train']:
+    run_file = "run_exp.py"
+else:
+    run_file = "test_exp.py"
+
+def launch_job(params, gpu_id, run_file):
+    command = ["python", run_file]
     
     # Add sweep params
     for k, v in params.items():
@@ -49,6 +54,6 @@ while param_combinations or any(gpu_jobs.values()):
         if job is None or job.poll() is not None:
             if param_combinations:
                 params = param_combinations.pop(0)
-                gpu_jobs[gpu_id] = launch_job(params, gpu_id)
+                gpu_jobs[gpu_id] = launch_job(params, gpu_id, run_file)
     
     time.sleep(10)  # Wait a little before checking again

@@ -26,7 +26,7 @@ import data.helper as helper
 
 
 parser = argparse.ArgumentParser(description='Quantile Mapping Model Configuration')
-
+parser.add_argument('--config', type=str, help='Path to YAML config file')
 parser.add_argument('--cuda_device', type=str, default='0')
 parser.add_argument('--logging', action='store_true')
 parser.add_argument('--clim', type=str, default='miroc6')

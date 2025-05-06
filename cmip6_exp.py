@@ -35,9 +35,9 @@ logging = True
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
 
-clim = 'access_cm2'
+clim = 'mri_esm2_0'
 ref = 'livneh'
-train = True
+train = False
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
@@ -47,7 +47,7 @@ input_attrs = {'elevation': ['elev', 'elevation']}
 
 
 ### FOR TREND ANALYSIS
-trend_analysis = False
+trend_analysis = True
 scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
@@ -63,8 +63,8 @@ model_type = 'ANN' #[SST, Poly2]
 # resume = False
 degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
-time_scale = 'season'
-emph_quantile = 0.9
+time_scale = 'year-month'
+emph_quantile = 0.5
 
 ## loss params
 w1 = 1
@@ -122,8 +122,11 @@ valid_coords = data_loader.get_valid_coords()
 _, time_x = data_loader.load_dynamic_inputs()
 nx = len(input_x)+ len(input_attrs)
 
-if time_scale!= 'daily':
-    time_scale = helper.extract_time_labels(time_x, label_type=time_scale)
+if time_scale == 'daily':
+    time_labels = time_labels_val = 'daily'
+else:
+    time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
+    time_labels_future = helper.extract_time_labels(data_loader_future.load_dynamic_inputs()[1], label_type=time_scale) if trend_analysis else None
 
 model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
@@ -155,7 +158,7 @@ if train:
             batch_y = batch_y.to(device)
 
             # Forward pass
-            transformed_x = model(batch_x, batch_input_norm, time_scale = time_scale)
+            transformed_x = model(batch_x, batch_input_norm, time_scale = time_labels)
 
             # Compute the loss
             # kl_loss = 0.699*kl_divergence_loss(transformed_x.T, batch_y.T, num_bins=1000)
@@ -201,7 +204,7 @@ if train:
     plt.show()
 
 else:
-    model.load_state_dict(torch.load(f'{model_save_path}/model_{testepoch}.pth', weights_only=True))
+    model.load_state_dict(torch.load(f'{model_save_path}/model_{testepoch}.pth', weights_only=True, map_location=device))
     model.eval()
     transformed_x = []
     transformed_x_future = []
@@ -213,7 +216,7 @@ else:
             batch_input_norm, batch_x, batch_y = [b.to(device) for b in batch]
 
             # Forward pass
-            predictions = model(batch_x, batch_input_norm)
+            predictions = model(batch_x, batch_input_norm, time_scale = time_labels)
 
             # Store predictions
             transformed_x.append(predictions.cpu())
@@ -226,7 +229,7 @@ else:
                 batch_input_norm, batch_x = [b.to(device) for b in batch]
 
                 # Forward pass
-                predictions = model(batch_x, batch_input_norm)
+                predictions = model(batch_x, batch_input_norm, time_scale = time_labels_future)
 
                 # Store predictions
                 transformed_x_future.append(predictions.cpu())

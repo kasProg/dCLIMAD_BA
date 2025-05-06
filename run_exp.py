@@ -11,6 +11,7 @@ import yaml
 import data.helper as helper
 import datetime
 import os
+from eval.metrics import *
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
@@ -19,7 +20,8 @@ parser = argparse.ArgumentParser(description='Quantile Mapping Model Configurati
 parser.add_argument('--cuda_device', type=str, default='0')
 parser.add_argument('--logging', action='store_true')
 parser.add_argument('--clim', type=str, default='miroc6')
-parser.add_argument('--clim_dir', type=str)
+parser.add_argument('--ref', type=str, default='livneh')
+parser.add_argument('--cmip_dir', type=str)
 parser.add_argument('--ref_dir', type=str)
 parser.add_argument('--train', action='store_true')
 parser.add_argument('--validation', action='store_true')
@@ -51,7 +53,7 @@ cuda_device = args.cuda_device
 logging = args.logging
 
 
-cmip6_dir = args.cmip6_dir
+cmip6_dir = args.cmip_dir
 ref_path = args.ref_dir
 
 clim = args.clim
@@ -95,6 +97,7 @@ w2 = 0
 
 seriesLst = input_x.keys()
 attrLst =input_attrs.keys()
+
 
 
 ###------------ Developer section here --------------###
@@ -219,6 +222,9 @@ for epoch in range(num_epochs+1):
         if validation:
             model.eval()
             val_epoch_loss = 0
+            xt_val = []
+            x_val = []
+            y_val = []
             with torch.no_grad():
                 for batch_input_norm, batch_x, batch_y in dataloader_val:
                     batch_input_norm = batch_input_norm.to(device)
@@ -232,13 +238,59 @@ for epoch in range(num_epochs+1):
                     val_loss = val_dist_loss + val_rainy_loss
 
                     val_epoch_loss += val_loss.item()
+                    # Store predictions
+                    xt_val.append(transformed_x.cpu())
+
+                    y_val.append(batch_y.cpu())
+                    x_val.append(batch_x.cpu())
 
             avg_val_loss = val_epoch_loss / len(dataloader_val)
+
+            xt_val = torch.cat(xt_val, dim=0).numpy().T
+            x_val = torch.cat(x_val, dim=0).numpy().T
+            y_val = torch.cat(y_val, dim=0).numpy().T
+            x_val_time = torch.load(f'{val_save_path}/time.pt', weights_only = False)
+
+            ## to manage time
+            x_val_time_np = np.array([pd.Timestamp(str(t)) for t in x_val_time])
+            x_val_time_np = np.array([pd.Timestamp(t).replace(hour=0, minute=0, second=0) for t in x_val_time_np], dtype='datetime64[D]')
+            # Generate a daily time array following the standard Gregorian calendar
+            y_val_time = pd.date_range(start=f"{val_period[0]}-01-01", end=f"{val_period[1]}-12-31", freq="D")
+            # Convert to NumPy array for indexing and comparison
+            y_val_time_np = y_val_time.to_numpy()
+            # Find indices where observed time matches model time
+            matched_indices = np.where(np.isin(y_val_time_np, x_val_time_np))[0]
+            y_val = y_val[matched_indices,:]
+
+            # Initialize climate indices manager
+            climate_indices = ClimateIndices()          
+
+            # day_bias_percentages = get_day_bias_percentages(x_val, y_val, xt_val, climate_indices)
+            mean_bias_percentages = get_mean_bias_percentages(x_val, y_val, xt_val, x_val_time_np, climate_indices)
+            day_bias_percentages = get_day_bias_percentages(x_val, y_val, xt_val, climate_indices)
+
+            keys_mean = ['SDII (Monthly)','CDD (Yearly)', 'CWD (Yearly)', "Rx1day", "Rx5day", "R10mm",  "R20mm", "R95pTOT", "R99pTOT"]
+            mean_bias_percentages = dict(filter(lambda item: item[0] in keys_mean , mean_bias_percentages.items()))
+
 
             if logging:
                 writer.add_scalar("Loss/validation", avg_val_loss, epoch)
             
                 print(f"Epoch {epoch}: Validation Loss = {avg_val_loss:.4f}")
+
+                # Extract and log median(corrected) per metric
+                for name, values in mean_bias_percentages.items():
+                    corrected = [v[1] for v in values]  # extract corrected values
+                    median_corrected = float(np.median(corrected))
+                    writer.add_scalar(f'median_adjusted/{name}', median_corrected, epoch)
+
+                # Extract and log median(corrected) per metric
+                for name, values in day_bias_percentages.items():
+                    corrected = [v[1] for v in values]  # extract corrected values
+                    median_corrected = float(np.median(corrected))
+                    writer.add_scalar(f'median_adjusted/{name}', median_corrected, epoch)
+                
+                
 
 # Save finished.txt to mark successful completion
 finished_file = os.path.join(model_save_path, "finished.txt")

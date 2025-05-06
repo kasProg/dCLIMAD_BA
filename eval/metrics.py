@@ -4,6 +4,8 @@ import numpy as np
 import geopandas as gpd
 from esda.moran import Moran
 from libpysal.weights import KNN
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # Function to determine season from month
 def get_season(month):
