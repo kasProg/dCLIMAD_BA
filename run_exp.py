@@ -6,6 +6,7 @@ from model.model import QuantileMappingModel_, QuantileMappingModel, QuantileMap
 from model.loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
 from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
+from data.helper import generate_run_id
 import argparse
 import yaml
 import data.helper as helper
@@ -23,6 +24,7 @@ parser.add_argument('--clim', type=str, default='miroc6')
 parser.add_argument('--ref', type=str, default='livneh')
 parser.add_argument('--cmip_dir', type=str)
 parser.add_argument('--ref_dir', type=str)
+parser.add_argument('--input_attrs', type=str, help="Semicolon-separated list of input attributes")
 parser.add_argument('--train', action='store_true')
 parser.add_argument('--validation', action='store_true')
 parser.add_argument('--model_type', type=str, default='ANN')
@@ -32,7 +34,7 @@ parser.add_argument('--time_scale', type=str, default='seasonal')
 parser.add_argument('--emph_quantile', type=float, default=0.9)
 parser.add_argument('--epochs', type=int, default=500)
 parser.add_argument('--testepoch', type=int, default=50)
-parser.add_argument('--num', type=str, default='all')
+parser.add_argument('--spatial_extent', type=str, default='all')
 parser.add_argument('--batch_size', type=int, default=50)
 parser.add_argument('--trend_analysis', action='store_true')
 parser.add_argument('--benchmarking', action='store_true')
@@ -46,6 +48,10 @@ parser.add_argument('--trend_end', type=int, default=2099)
 
 
 args = parser.parse_args()
+
+# Generate unique run ID
+args_dict = vars(args)
+run_id = generate_run_id(args_dict)
 
 torch.manual_seed(42)
 cuda_device = args.cuda_device
@@ -78,25 +84,21 @@ emph_quantile = args.emph_quantile
 
 
 ##number of coordinates; if all then set to 'all'
-num = args.num
+spatial_extent = args.spatial_extent
 # slice = 0 #for spatial test; set 0 otherwise
 batch_size = args.batch_size
 
-
+input_attrs = args.input_attrs.split(';')
 
 ####------FIXED INPUTS------------####
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
 target_y = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
-input_attrs = {'elevation': ['elev', 'elevation']}
 
 ## loss params
 w1 = 1
 w2 = 0
 # ny = 4 # number of params
-
-seriesLst = input_x.keys()
-attrLst =input_attrs.keys()
 
 
 
@@ -110,11 +112,11 @@ else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
 if logging:
-    exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}'
+    exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}'
     writer = SummaryWriter(f"runs/{exp}")
 
 
-save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{num}/{train_period[0]}_{train_period[1]}/'
+save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}/{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if validation:
     val_save_path =  save_path + f'{val_period[0]}_{val_period[1]}/'
@@ -124,7 +126,6 @@ if validation:
 os.makedirs(save_path, exist_ok=True)
 
 # Save current arguments into config.yaml inside save_path
-args_dict = vars(args)  # Converts argparse Namespace into a dictionary
 with open(os.path.join(save_path, "train_config.yaml"), "w") as f:
     yaml.dump(args_dict, f)
 

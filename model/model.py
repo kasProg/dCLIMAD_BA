@@ -21,7 +21,7 @@ class QuantileMappingModel(nn.Module):
         ny = degree + 1 
         self.model_type = modelType 
 
-        if modelType == 'ANN':
+        if modelType == 'MLP':
             self.transform_generator = self.build_transform_generator(nx, hidden_dim, ny, num_layers)
         elif modelType == 'FNO2d':
             self.transform_generator = FNO2d(16, 16, hidden_dim)
@@ -64,8 +64,8 @@ class QuantileMappingModel(nn.Module):
         if str(time_scale) != 'daily':
             label_dummies = pd.get_dummies(time_scale)
             weights_np = label_dummies.div(label_dummies.sum(axis=0), axis=1).values.astype(np.float32)
-            weights = torch.tensor(weights_np, device=params.device)  # shape (time, n_months)
-            label_avg = torch.einsum('stp,tm->smp', params, weights)  # (sites, months, params)
+            weights = torch.tensor(weights_np, device=params.device)  # shape (time, scale)
+            label_avg = torch.einsum('stp,tm->smp', params, weights)  # (sites, scale, params)
             params = torch.einsum('tm,smp->stp', weights, label_avg)  # shape: (sites, time, params)
 
         scales = [torch.exp(params[:, :, i]) for i in range(self.degree)]  # Ensure positive scaling

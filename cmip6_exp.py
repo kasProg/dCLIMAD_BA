@@ -31,23 +31,23 @@ else:
     else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
-logging = True
+logging = False
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
 
 clim = 'mri_esm2_0'
 ref = 'livneh'
-train = False
+train = True
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
 target_y = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
-input_attrs = {'elevation': ['elev', 'elevation']}
+input_attrs = ['elev', 'slope', 'aspect']
 # input_attrs = {}
 
 
 ### FOR TREND ANALYSIS
-trend_analysis = True
+trend_analysis = False
 scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
@@ -59,11 +59,11 @@ testepoch = 50
 benchmarking = True
 
 # model params
-model_type = 'ANN' #[SST, Poly2]
+model_type = 'MLP' #[SST, Poly2]
 # resume = False
-degree = 1 # degree of transformation
+degree = 1 # degree of transformation d d
 layers = 4 #number of layers to ANN
-time_scale = 'year-month'
+time_scale = 'julian-day' #choose from [daily, month, year-month, julian-day, season]
 emph_quantile = 0.5
 
 ## loss params
@@ -77,7 +77,7 @@ num = 'all'
 batch_size = 50
 
 seriesLst = input_x.keys()
-attrLst =input_attrs.keys()
+# attrLst =input_attrs.keys()
 
 
 ###-------- Developer section here -----------###
@@ -111,7 +111,7 @@ dataloader = data_loader.get_dataloader()
 if not train and trend_analysis:
     future_save_path = model_save_path + f'{scenario}_{trend_future_period[0]}_{trend_future_period[1]}/'
     os.makedirs(future_save_path, exist_ok=True)
-    data_loader_future = DataLoaderWrapper(
+    data_loader_future = DataLoaderWrapper( 
     clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, target_y={}, save_path=future_save_path, stat_save_path = model_save_path, 
     crd='all', batch_size=100, train=train, device=device)

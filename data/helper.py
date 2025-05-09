@@ -8,6 +8,9 @@ import regionmask
 import glob
 from scipy.interpolate import griddata
 import cftime
+import hashlib
+import yaml
+
 
 
 def search_path(search_pattern):
@@ -238,6 +241,8 @@ def extract_time_labels(time_array, label_type='month'):
             return dt.month.map(get_season).tolist()
         elif label_type == 'year-month':
             return dt.to_period("M").astype(str).tolist()
+        elif label_type == 'julian-day':
+            return dt.dayofyear.tolist()
     except (TypeError, ValueError):
         # For cftime or non-standard calendars
         if label_type == 'month':
@@ -246,3 +251,12 @@ def extract_time_labels(time_array, label_type='month'):
             return [get_season(t.month) for t in time_array]
         elif label_type == 'year-month':
             return [f"{t.year}-{t.month:02d}" for t in time_array]
+        elif label_type == 'julian-day':
+            return [t.timetuple().tm_yday for t in time_array]
+
+
+def generate_run_id(args_dict):
+    # Convert to sorted string to ensure consistent hashing
+    config_str = yaml.dump(args_dict, default_flow_style=False, sort_keys=True)
+    run_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]  # Short, 8-char hash
+    return run_hash

@@ -15,14 +15,14 @@ def convert_lon_to_neg180(lons):
 
 clim_models = ['access_cm2', 'miroc6', 'ipsl_cm6a_lr', 'mpi_esm1_2_lr', 'mri_esm2_0', 'gfdl_esm4']
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
-tiff_file = "/pscratch/sd/k/kas7897/slope_0.01.tif"
+tiff_file = "/pscratch/sd/k/kas7897/slope/slope_0.01.tif"
 
 for clim in clim_models:
     # Step 1: Extract lat/lon from the precipitation NetCDF file and convert longitude
     precip_nc_file = f'{cmip6_dir}/{clim}/historical/precipitation/clipped_US.nc'
 
     #save_path
-    attri_nc_file = f'{cmip6_dir}/{clim}/elev.nc'
+    attri_nc_file = f'{cmip6_dir}/{clim}/slope.nc'
 
     with nc.Dataset(precip_nc_file, 'r') as precip_ds:
         lats = precip_ds.variables['lat'][:]
@@ -35,22 +35,31 @@ for clim in clim_models:
 
     # tiff_file = "/data/kas7897/diffDownscale/elevation_1KMmn_GMTEDmn_with_Antarctica_from_World_e-Atlas.tif"
     with rasterio.open(tiff_file) as attri_ds:
-        attri_data = attri_ds.read(1)  # Read the first band (assuming it's attri)
+        attri_data = attri_ds.read(1).astype(float)
+        attri_data[attri_data == -9999.0] = np.nan  # Replace nodata values
+        attri_data = np.deg2rad(attri_data)  # Read the first band (assuming it's attri)
         tiff_transform = attri_ds.transform
         tiff_bounds = attri_ds.bounds
         tiff_res = attri_ds.res
 
         # Create coordinate arrays for the attri data
-        tiff_lon = np.arange(tiff_bounds.left, tiff_bounds.right, tiff_res[0])
-        tiff_lat = np.arange(tiff_bounds.top, tiff_bounds.bottom, -tiff_res[1])
+        # tiff_lon = np.arange(tiff_bounds.left, tiff_bounds.right, tiff_res[0])
+        # tiff_lat = np.arange(tiff_bounds.top, tiff_bounds.bottom, -tiff_res[1])
+        tiff_lon = np.linspace(tiff_bounds.left, tiff_bounds.right - tiff_res[0], attri_data.shape[1])
+        tiff_lat = np.linspace(tiff_bounds.top, tiff_bounds.bottom + tiff_res[1], attri_data.shape[0])
+
         tiff_lon_grid, tiff_lat_grid = np.meshgrid(tiff_lon, tiff_lat)
 
+        # tiff_lon_grid, tiff_lat_grid = np.meshgrid(
+        #     np.arange(attri_ds.width) * tiff_transform[0] + tiff_transform[2],
+        #     np.arange(attri_ds.height) * (tiff_transform[4]) + tiff_transform[5]
+        # )
     # Step 3: Interpolate the attri at the lat/lon points from the precipitation NetCDF
     lon_grid, lat_grid = np.meshgrid(lons_converted, lats)
     attri_interp = griddata((tiff_lon_grid.flatten(), tiff_lat_grid.flatten()),
                                 attri_data.flatten(),
                                 (lon_grid, lat_grid),
-                                method='linear')
+                                method='nearest')
 
     # Step 4: Create a new NetCDF file to store the interpolated attri data
     with nc.Dataset(attri_nc_file, 'w', format='NETCDF4') as attri_ds:
@@ -68,7 +77,7 @@ for clim in clim_models:
 
         # Create the attri variable
         attri = attri_ds.createVariable('slope', np.float32, ('lat', 'lon'))
-        attri.units = 'degree'
+        attri.units = 'radians'
         attri.long_name = 'Slope at the given lat/lon'
 
         # Assign interpolated elevation values

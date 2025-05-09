@@ -67,16 +67,16 @@ class DataLoaderWrapper:
     def load_attrs(self):
         """Loads static attributes (elevation, land type, etc.)."""
         attrs_data = {}
-        for var, possible_vars in self.input_attrs.items():
+        for var in self.input_attrs:
             print(f"Processing Attribute {var}...")
-            if var == "elevation":
-                path = os.path.join(self.cmip6_dir, f'{self.clim}/elev.nc')
-                elev = xr.open_dataset(path)
-                attrs_data[var] = elev[var].sel(
-                    lat=xr.DataArray(self.valid_coords[:, 0], dims='points'),
-                    lon=xr.DataArray(self.valid_coords[:, 1], dims='points'),
-                    method='nearest'
-                ).values
+            # if var == "elevation":
+            path = os.path.join(self.cmip6_dir, f'{self.clim}/{var}.nc')
+            attr = xr.open_dataset(path)
+            attrs_data[var] = attr[var].sel(
+                lat=xr.DataArray(self.valid_coords[:, 0], dims='points'),
+                lon=xr.DataArray(self.valid_coords[:, 1], dims='points'),
+                method='nearest'
+            ).values
         return attrs_data
 
     def load_dynamic_inputs(self):
@@ -197,7 +197,7 @@ class DataLoaderWrapper:
         print("Normalizing data...")
         if self.train:
             statDict = process.getStatDic(flow_regime=0, seriesLst=list(self.input_x.keys()), seriesdata=self.x_data, 
-                                      attrLst=list(self.input_attrs.keys()), attrdata=self.attr_tensor)
+                                      attrLst=list(self.input_attrs), attrdata=self.attr_tensor)
             process.save_dict(statDict, f'{self.stat_save_path}/statDict.json')
         else:
             statDict = process.load_dict(f'{self.stat_save_path}/statDict.json')
@@ -205,7 +205,7 @@ class DataLoaderWrapper:
         series_norm[torch.isnan(series_norm)] = 0.0
 
         if self.attr_tensor.numel()!=0:
-            attr_norm = process.transNormbyDic(self.attr_tensor, list(self.input_attrs.keys()), statDict, toNorm=True, flow_regime=0)
+            attr_norm = process.transNormbyDic(self.attr_tensor, self.input_attrs, statDict, toNorm=True, flow_regime=0)
             attr_norm[torch.isnan(attr_norm)] = 0.0  
             attr_norm_tensor = attr_norm.unsqueeze(0).expand(series_norm.shape[0], -1, -1)
 
