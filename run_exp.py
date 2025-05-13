@@ -24,6 +24,7 @@ parser.add_argument('--clim', type=str, default='miroc6')
 parser.add_argument('--ref', type=str, default='livneh')
 parser.add_argument('--cmip_dir', type=str)
 parser.add_argument('--ref_dir', type=str)
+parser.add_argument('--ref_var', type=str)
 parser.add_argument('--input_attrs', type=str, help="Semicolon-separated list of input attributes")
 parser.add_argument('--train', action='store_true')
 parser.add_argument('--validation', action='store_true')
@@ -90,10 +91,13 @@ batch_size = args.batch_size
 
 input_attrs = args.input_attrs.split(';')
 
+ref_var = args.ref_var
+
 ####------FIXED INPUTS------------####
+
+
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
-target_y = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
 
 ## loss params
 w1 = 1
@@ -132,7 +136,7 @@ with open(os.path.join(save_path, "train_config.yaml"), "w") as f:
 
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=train_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
-    input_x=input_x, input_attrs=input_attrs, target_y=target_y, save_path=save_path, stat_save_path = model_save_path,
+    input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
     crd='all', batch_size=batch_size, train=train, device=device)
 
 dataloader = data_loader.get_dataloader()
@@ -140,7 +144,7 @@ dataloader = data_loader.get_dataloader()
 if validation:
     data_loader_val = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=val_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
-    input_x=input_x, input_attrs=input_attrs, target_y=target_y, save_path=val_save_path, stat_save_path = model_save_path,
+    input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=val_save_path, stat_save_path = model_save_path,
     crd='all', batch_size=batch_size, train=train, device=device)
 
     dataloader_val = data_loader_val.get_dataloader()

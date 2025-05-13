@@ -5,12 +5,13 @@ from torch.utils.data import DataLoader, TensorDataset
 import data.valid_crd as valid_crd
 import data.process as process  # Corrected import
 from data.helper import UnitManager
+
 ### Some limitations: 
 # Loyal to CONUS region, eg files named clipped_US
 
 class DataLoaderWrapper:
     def __init__(self, clim, scenario, ref, period, ref_path, cmip6_dir, 
-                 input_x, input_attrs, target_y, save_path, stat_save_path, crd='all', batch_size=100, train=True, device=0):
+                 input_x, input_attrs, ref_var, save_path, stat_save_path, crd='all', batch_size=100, train=True, device=0):
         """
         Customizable climate data loader with future projection support.
         """
@@ -21,7 +22,7 @@ class DataLoaderWrapper:
         self.ref_path = ref_path
         self.cmip6_dir = cmip6_dir
         self.input_x = input_x
-        self.target_y = target_y
+        self.ref_var = ref_var
         self.input_attrs = input_attrs
         self.crd = crd
         self.batch_size = batch_size
@@ -55,14 +56,14 @@ class DataLoaderWrapper:
         else:
             y_clim = self.clim
         
-        if self.ref == 'livneh':
-            ds_sample = xr.open_dataset(f"{self.ref_path}/precipitation/{y_clim}/prec.1980.nc")
-            return valid_crd.valid_lat_lon(ds_sample)
+        if self.ref in ['livneh', 'gridmet']:
+            ds_sample = xr.open_dataset(f"{self.ref_path}/{self.ref_var}/{y_clim}/prec.1980.nc")
+            return valid_crd.valid_lat_lon(ds_sample, self.ref_var)
         else:
             ## perfect model framework
             # ds_sample = xr.open_dataset(f"{self.ref_path}/historical/precipitation/{y_clim}/clipped_US.nc")
             ds_sample = xr.open_dataset(f"{self.cmip6_dir}/{self.clim}/historical/precipitation/clipped_US.nc")
-            return valid_crd.valid_lat_lon(ds_sample, var_name='pr')
+            return valid_crd.valid_lat_lon(ds_sample, var_name=self.ref_var)
     
     def load_attrs(self):
         """Loads static attributes (elevation, land type, etc.)."""
@@ -123,26 +124,30 @@ class DataLoaderWrapper:
     def load_y_data(self):
         y_data = []
         print("Processing y data...")
-        if self.ref == 'livneh':
-            """Loads reference data (Livneh)."""
-            for var, possible_vars in self.target_y.items():
-                print(f'Processing y: Reference {var}...')
-                if self.clim ==  'ensemble':
-                    y_clim = 'access_cm2'
-                else:
-                    y_clim = self.clim
-                path = os.path.join(self.ref_path, f'{var}/{y_clim}')
-                y = process.process_multi_year_data(path, self.period, self.valid_coords, 
-                                                    self.crd, self.device, var=(var, possible_vars))           
-                y_data.append(y.unsqueeze(-1))
+        if self.ref in ['livneh', 'gridmet']:
+            """Loads reference data"""
+            # for var, possible_vars in self.ref_var.items():
+            print(f'Processing y: Reference {self.ref_var}...')
+            if self.clim ==  'ensemble':
+                y_clim = 'access_cm2'
+            else:
+                y_clim = self.clim
+            
+            path = os.path.join(self.ref_path, f'{self.ref_var}/{y_clim}')
+            y = process.process_multi_year_data(path, self.period, self.valid_coords, 
+                                                self.crd, self.device, var=self.ref_var)           
+            y_data.append(y.unsqueeze(-1))
                 
             y_data = torch.cat(y_data, dim=-1)
+
             torch.save(y_data, f'{self.save_path}/y.pt')
+
             return y_data.to(self.x_data.dtype), 'nil'
+            
         else:
             ### Used for Perfect Model Framework
             time_y = None
-            for var, possible_vars in self.target_y.items():
+            for var, possible_vars in self.ref_var.items():
                 print(f"Processing y: Climate {var}...")
 
                 # Open the NetCDF file (assuming a generic variable name for directory structure)

@@ -33,16 +33,16 @@ else:
 
 logging = False
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
-ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
+ref_path = '/pscratch/sd/k/kas7897/gridmet'
 
-clim = 'mri_esm2_0'
-ref = 'livneh'
+clim = 'gfdl_esm4'
+ref = 'gridmet'
 train = True
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
-target_y = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
-input_attrs = ['elev', 'slope', 'aspect']
+ref_var = 'precipitation_amount'
+input_attrs = ['elev', 'slope', 'aspect', 'landcover']
 # input_attrs = {}
 
 
@@ -52,7 +52,7 @@ scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
 
-train_period = [1950, 1980]
+train_period = [1979, 1995]
 test_period = [1981, 1995]
 epochs = 500
 testepoch = 50
@@ -61,7 +61,7 @@ benchmarking = True
 # model params
 model_type = 'MLP' #[SST, Poly2]
 # resume = False
-degree = 1 # degree of transformation d d
+degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
 time_scale = 'julian-day' #choose from [daily, month, year-month, julian-day, season]
 emph_quantile = 0.5
@@ -73,7 +73,7 @@ w2 = 0
 
 ##number of coordinates; if all then set to 'all'
 num = 'all'
-# slice = 0 #for spatial test; set 0 otherwise
+# slice = 0 #for spatial test; set 0 otherwises
 batch_size = 50
 
 seriesLst = input_x.keys()
@@ -103,7 +103,7 @@ os.makedirs(save_path, exist_ok=True)
 
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
-    input_x=input_x, input_attrs=input_attrs, target_y=target_y, save_path=save_path, stat_save_path = model_save_path,
+    input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
     crd='all', batch_size=100, train=train, device=device)
 
 dataloader = data_loader.get_dataloader()
@@ -113,7 +113,7 @@ if not train and trend_analysis:
     os.makedirs(future_save_path, exist_ok=True)
     data_loader_future = DataLoaderWrapper( 
     clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
-    input_x=input_x, input_attrs=input_attrs, target_y={}, save_path=future_save_path, stat_save_path = model_save_path, 
+    input_x=input_x, input_attrs=input_attrs, ref_var='', save_path=future_save_path, stat_save_path = model_save_path, 
     crd='all', batch_size=100, train=train, device=device)
 
     dataloader_future = data_loader_future.get_dataloader_future()

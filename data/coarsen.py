@@ -10,8 +10,9 @@ from helper import interpolate_time_slice
 ########------THIS CODE REGRIDS UNSPLIT-LIVNEH TO CLIMATE-MODEL RESOLUTION-------##########
 
 cmip6_dir = "/pscratch/sd/k/kas7897/cmip6"
-obs_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/precipitation'
-obs_year_range = [1950, 2014]
+obs_path = '/pscratch/sd/k/kas7897/GridMet'
+var = 'precipitation_amount'
+obs_year_range = [1979, 2020]
 
 clim_models = ['gfdl_esm4', 'ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr', 'mri_esm2_0', 'access_cm2']
 for clim in clim_models:
@@ -24,14 +25,14 @@ for clim in clim_models:
 
     for year in range(obs_year_range[0], obs_year_range[1]+1):
 
-        prcp_ds = xr.open_dataset(f'{obs_path}/livneh_unsplit_precip.2021-05-02.{year}.nc')
+        prcp_ds = xr.open_dataset(f'{obs_path}/pr_{year}.nc')
         ds_og = xr.open_dataset(f"{clim_path}")
 
 
         # Create a new dataset with noisy precipitation
         noisy_prcp_ds = prcp_ds.copy()
-        time = noisy_prcp_ds.Time.values
-        prcp_n = noisy_prcp_ds.PRCP.values
+        time = noisy_prcp_ds.day.values
+        prcp_n = noisy_prcp_ds[var].values
 
         # ## Bicubic interpolation
         lat_og = ds_og.lat.values
@@ -48,7 +49,7 @@ for clim in clim_models:
 
         ds_C = xr.Dataset(
             data_vars={
-                'prec': (['time', 'lat', 'lon'], prcp_final)
+                var: (['time', 'lat', 'lon'], prcp_final)
             },
             coords={
                 'time': time,
@@ -59,8 +60,8 @@ for clim in clim_models:
 
 
         # # Add attributes if necessary
-        ds_C.prec.attrs = noisy_prcp_ds.PRCP.attrs
-        ds_C['prec'] = ds_C['prec'].where(ds_C['prec'] >= 0, 0)
+        ds_C[var].attrs = noisy_prcp_ds[var].attrs
+        ds_C[var] = ds_C[var].where(ds_C[var] >= 0, 0)
 
         if isinstance(ds_og['time'].values[0], cftime.datetime):
                     # Convert cftime to pandas datetime
@@ -74,7 +75,7 @@ for clim in clim_models:
         # ref_ds_aligned = ref_ds.reindex(time=ds_interp['time'], method='nearest')
         # ds_interp[variables[var]] = ds_interp[variables[var]].where(ref_ds_aligned.prec == ref_ds_aligned.prec, np.nan)
 
-        ds_C['prec'] = ds_C['prec'].where(ref_ds_aligned.pr == ref_ds_aligned.pr, np.nan)
+        ds_C[var] = ds_C[var].where(ref_ds_aligned.pr == ref_ds_aligned.pr, np.nan)
 
         # Save the new dataset as a NetCDF file
         ds_C.to_netcdf(f'{path}/prec.{year}.nc')

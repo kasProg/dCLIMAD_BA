@@ -47,13 +47,18 @@ def launch_job(params, gpu_id, run_file):
     
     return subprocess.Popen(command)
 
-# Launch loop
 while param_combinations or any(gpu_jobs.values()):
-    # Launch jobs on free GPUs
+    # Check for finished jobs
     for gpu_id, job in gpu_jobs.items():
-        if job is None or job.poll() is not None:
-            if param_combinations:
-                params = param_combinations.pop(0)
-                gpu_jobs[gpu_id] = launch_job(params, gpu_id, run_file)
-    
-    time.sleep(10)  # Wait a little before checking again
+        if job is not None and job.poll() is not None:
+            gpu_jobs[gpu_id] = None
+        
+        # Launch new job if this GPU is free
+        if gpu_jobs[gpu_id] is None and param_combinations:
+            params = param_combinations.pop(0)
+            gpu_jobs[gpu_id] = launch_job(params, gpu_id, run_file)
+
+    # Short sleep to reduce CPU usage
+    time.sleep(5)
+
+print("All jobs finished.")
