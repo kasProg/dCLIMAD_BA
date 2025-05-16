@@ -2,19 +2,9 @@ import itertools
 import subprocess
 import yaml
 import time
-import argparse
 
-# -----------------------------
-# Parse command-line arguments
-# -----------------------------
-parser = argparse.ArgumentParser(description="Job launcher for parameter sweep")
-parser.add_argument("--config", type=str, required=True, help="Path to config YAML file")
-args = parser.parse_args()
-
-# -----------------------------
-# Load configuration file
-# -----------------------------
-with open(args.config, 'r') as f:
+# Read config
+with open('config1.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 sweep = config['sweep']

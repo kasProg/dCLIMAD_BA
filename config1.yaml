@@ -1,5 +1,5 @@
 sweep:
-  clim: ['access_cm2', 'gfdl_esm4']
+  clim: ['access_cm2']
   model_type: ['MLP']
   degree: [1, 2]
   layers: [4]
@@ -11,11 +11,12 @@ sweep:
 
 fixed:
   cmip_dir: '/pscratch/sd/k/kas7897/cmip6'
-  ref_dir: '/pscratch/sd/k/kas7897/Livneh/unsplit/'
-  train_start: 1950
-  train_end: 1980
-  val_start: 1981
-  val_end: 1995
+  ref_dir: '/pscratch/sd/k/kas7897/Livneh/unsplit'
+  ref_var: 'prec'
+  train_start: 1979
+  train_end: 2000
+  val_start: 2001
+  val_end: 2014
   trend_start: 2075
   trend_end: 2099
   epochs: 400
@@ -28,6 +29,6 @@ fixed:
   logging: True
   train: True
   validation: True
-  ref_var: 'prec'
+
 
 available_gpus: [0, 1, 2, 3]  # <-- HERE

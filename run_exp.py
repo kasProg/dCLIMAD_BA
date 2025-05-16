@@ -116,7 +116,7 @@ else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
 if logging:
-    exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}'
+    exp = f'conus/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}/{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
     writer = SummaryWriter(f"runs/{exp}")
 
 
