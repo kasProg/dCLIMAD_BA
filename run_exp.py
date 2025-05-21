@@ -35,7 +35,9 @@ parser.add_argument('--time_scale', type=str, default='seasonal')
 parser.add_argument('--emph_quantile', type=float, default=0.9)
 parser.add_argument('--epochs', type=int, default=500)
 parser.add_argument('--testepoch', type=int, default=50)
-parser.add_argument('--spatial_extent', type=str, default='all')
+parser.add_argument('--spatial_extent', nargs='+', type=int, default=[])
+parser.add_argument('--spatial_extent_val', nargs='+', type=int, default=[])
+parser.add_argument('--shapefile_filter_path', type=str, default=None)
 parser.add_argument('--batch_size', type=int, default=50)
 parser.add_argument('--trend_analysis', action='store_true')
 parser.add_argument('--benchmarking', action='store_true')
@@ -62,12 +64,12 @@ logging = args.logging
 
 cmip6_dir = args.cmip_dir
 ref_path = args.ref_dir
-
 clim = args.clim
 ref = args.ref
+ref_var = args.ref_var
+
 train = args.train
 validation = args.validation
-
 
 train_period = [args.train_start, args.train_end]
 val_period = [args.val_start, args.val_end]
@@ -77,23 +79,24 @@ benchmarking = args.benchmarking
 
 # model params
 model_type = args.model_type
-# resume = False
+batch_size = args.batch_size
 degree = args.degree
 layers = args.layers
 time_scale = args.time_scale
 emph_quantile = args.emph_quantile
 
 
-##number of coordinates; if all then set to 'all'
+## For Spatial Test
 spatial_extent = args.spatial_extent
-# slice = 0 #for spatial test; set 0 otherwise
-batch_size = args.batch_size
+spatial_extent_val = args.spatial_extent_val
+shapefile_filter_path = args.shapefile_filter_path
 
+
+## INPUTS
 input_attrs = args.input_attrs.split(';')
 
-ref_var = args.ref_var
 
-####------FIXED INPUTS------------####
+####------------FIXED INPUTS------------####
 
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
@@ -116,7 +119,7 @@ else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
 if logging:
-    exp = f'conus/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}/{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
+    exp = f'conus/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
     writer = SummaryWriter(f"runs/{exp}")
 
 
@@ -133,11 +136,10 @@ os.makedirs(save_path, exist_ok=True)
 with open(os.path.join(save_path, "train_config.yaml"), "w") as f:
     yaml.dump(args_dict, f)
 
-
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=train_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
-    crd='all', batch_size=batch_size, train=train, device=device)
+    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, device=device)
 
 dataloader = data_loader.get_dataloader()
 
@@ -145,7 +147,7 @@ if validation:
     data_loader_val = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=val_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=val_save_path, stat_save_path = model_save_path,
-    crd='all', batch_size=batch_size, train=train, device=device)
+    crd=spatial_extent_val, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, device=device)
 
     dataloader_val = data_loader_val.get_dataloader()
 

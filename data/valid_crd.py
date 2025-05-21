@@ -1,9 +1,10 @@
 import xarray as xr
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.stats import wasserstein_distance
+import geopandas as gpd
+from shapely.geometry import Point
 
-def valid_lat_lon(ds, var_name='prec'):
+def valid_lat_lon(ds, var_name='prec', shapefile_path=None, attr='OBJECTID', attrList = None):
     if 'lat' in ds.variables:
         lat = ds.lat.values
         lon = ds.lon.values
@@ -22,7 +23,36 @@ def valid_lat_lon(ds, var_name='prec'):
     valid_lons = lon_mesh[valid_mask]
     valid_coords = np.column_stack((valid_lats, valid_lons))
 
+    if shapefile_path is not None:
+        # Load shapefile
+        gdf = gpd.read_file(shapefile_path)
+
+        if attrList is not None:
+            gdf = gdf[gdf[attr].isin(attrList)]
+
+
+        # Optional: ensure consistent CRS
+        if hasattr(ds, 'crs') and gdf.crs != ds.crs:
+            gdf = gdf.to_crs(ds.crs)
+
+        # Create GeoSeries of valid Points
+        points = gpd.GeoSeries([Point(lon, lat) for lat, lon in valid_coords], crs=gdf.crs)
+
+        # Create a dictionary to store grouped coords
+        grouped_coords = {}
+
+        for idx, shape in gdf.iterrows():
+            name = shape[attr] if attr else idx
+            mask = points.within(shape.geometry)
+            coords_in_shape = valid_coords[mask.values]
+            if len(coords_in_shape) > 0:
+                grouped_coords[name] = coords_in_shape
+
+        valid_coords = np.vstack(list(grouped_coords.values()))
+
     return valid_coords
+
+
 
 def reconstruct_nc(x_values, valid_coords, time_values, var):
     """
@@ -91,4 +121,3 @@ def reconstruct_nc(x_values, valid_coords, time_values, var):
 # plt.hist(prec_B[:,400], bins=30, alpha=0.6, label="Original", color='orange')
 # plt.title("Original Gaussian and Target Skewed Distributions")
 # plt.legend()
-plt.show()

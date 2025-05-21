@@ -1,5 +1,5 @@
 sweep:
-  clim: ['access_cm2', 'gfdl_esm4']
+  clim: ['ipsl_cm6a_lr']
   model_type: ['MLP']
   degree: [1, 2]
   layers: [4]
@@ -10,24 +10,37 @@ sweep:
 
 
 fixed:
+
+  ## data
   cmip_dir: '/pscratch/sd/k/kas7897/cmip6'
   ref_dir: '/pscratch/sd/k/kas7897/Livneh/unsplit/'
+  ref: 'livneh'
+  ref_var: 'prec'
+
   train_start: 1950
   train_end: 1980
   val_start: 1981
   val_end: 1995
   trend_start: 2075
   trend_end: 2099
+
+  ## model params
   epochs: 400
   testepoch: 50
   batch_size: 100
-  ref: 'livneh'
-  spatial_extent: 'all'
+
+  ## run conditions
   trend_analysis: True
   benchmarking: True
   logging: True
   train: True
   validation: True
-  ref_var: 'prec'
+
+
+  ## for spatial tests--- leave empty for strict temporal tests
+  # currently spatial tests by feeding CONUS HUC2 shapefiles, and the coordiantes are grouped based on the listed HUC2s
+  shapefile_filter_path: 
+  spatial_extent:  #list the number of HUC2s you want to train your coordinates
+  spatial_extent_val:  #list the number of HUC2s you want to validate your coordinates
 
 available_gpus: [0, 1, 2, 3]  # <-- HERE

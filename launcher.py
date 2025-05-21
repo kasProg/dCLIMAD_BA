@@ -37,24 +37,27 @@ else:
 
 def launch_job(params, gpu_id, run_file):
     command = ["python", run_file]
-    
+
     # Add sweep params
     for k, v in params.items():
-        command += [f"--{k}", str(v)]
-    
+        if isinstance(v, list):
+            command += [f"--{k}"] + [str(item) for item in v]
+        else:
+            command += [f"--{k}", str(v)]
+
     # Add fixed params
     for k, v in fixed.items():
         if isinstance(v, bool):
             if v:
                 command.append(f"--{k}")
+        elif isinstance(v, list):
+            command += [f"--{k}"] + [str(item) for item in v]
         else:
             command += [f"--{k}", str(v)]
-    
-    # Assign GPU dynamically
+
     command += ["--cuda_device", str(gpu_id)]
-    
+
     print(f"Launching on GPU {gpu_id}: {' '.join(command)}")
-    
     return subprocess.Popen(command)
 
 while param_combinations or any(gpu_jobs.values()):

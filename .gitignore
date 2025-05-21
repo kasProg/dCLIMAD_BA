@@ -29,3 +29,4 @@ diffDownscale.code-workspace
 *.err
 *.out
 *.sbatch
+temp_folder.py

@@ -10,7 +10,7 @@ from data.helper import UnitManager
 # Loyal to CONUS region, eg files named clipped_US
 
 class DataLoaderWrapper:
-    def __init__(self, clim, scenario, ref, period, ref_path, cmip6_dir, 
+    def __init__(self, clim, scenario, ref, period, ref_path, cmip6_dir, shapefile_filter_path,
                  input_x, input_attrs, ref_var, save_path, stat_save_path, crd='all', batch_size=100, train=True, device=0):
         """
         Customizable climate data loader with future projection support.
@@ -27,7 +27,7 @@ class DataLoaderWrapper:
         self.crd = crd
         self.batch_size = batch_size
         self.train=train
-
+        self.shapefile_filter_path = shapefile_filter_path
         self.device = device
 
         
@@ -35,11 +35,8 @@ class DataLoaderWrapper:
         self.stat_save_path = stat_save_path
 
 
-        # Load data
-        if self.crd == 'all':
-            self.valid_coords = self.get_valid_coords()
-        else:
-            self.valid_coords = self.crd # list of coordinates
+
+        self.valid_coords = self.get_valid_coords()
 
         self.attrs_data = self.load_attrs()
         self.x_data, self.time_x = self.load_dynamic_inputs()
@@ -58,12 +55,15 @@ class DataLoaderWrapper:
         
         if self.ref in ['livneh', 'gridmet']:
             ds_sample = xr.open_dataset(f"{self.ref_path}/{self.ref_var}/{y_clim}/prec.1980.nc")
-            return valid_crd.valid_lat_lon(ds_sample, self.ref_var)
         else:
             ## perfect model framework
             # ds_sample = xr.open_dataset(f"{self.ref_path}/historical/precipitation/{y_clim}/clipped_US.nc")
             ds_sample = xr.open_dataset(f"{self.cmip6_dir}/{self.clim}/historical/precipitation/clipped_US.nc")
-            return valid_crd.valid_lat_lon(ds_sample, var_name=self.ref_var)
+            # return valid_crd.valid_lat_lon(ds_sample, var_name=self.ref_var)
+        
+        return valid_crd.valid_lat_lon(ds = ds_sample, var_name = self.ref_var, 
+                                       shapefile_path = self.shapefile_filter_path, attr='OBJECTID', attrList = self.crd)
+
     
     def load_attrs(self):
         """Loads static attributes (elevation, land type, etc.)."""
@@ -135,7 +135,7 @@ class DataLoaderWrapper:
             
             path = os.path.join(self.ref_path, f'{self.ref_var}/{y_clim}')
             y = process.process_multi_year_data(path, self.period, self.valid_coords, 
-                                                self.crd, self.device, var=self.ref_var)           
+                                                self.device, var=self.ref_var)           
             y_data.append(y.unsqueeze(-1))
                 
             y_data = torch.cat(y_data, dim=-1)

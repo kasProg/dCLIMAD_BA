@@ -35,7 +35,7 @@ logging = False
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 ref_path = '/pscratch/sd/k/kas7897/gridmet'
 
-clim = 'gfdl_esm4'
+clim = 'access_cm2'
 ref = 'gridmet'
 train = True
 
@@ -71,10 +71,11 @@ w1 = 1
 w2 = 0
 # ny = 4 # number of params
 
+#####----- For spatial Tests--------#####
 ##number of coordinates; if all then set to 'all'
 num = 'all'
-# slice = 0 #for spatial test; set 0 otherwises
-batch_size = 50
+crd = [1,2,3,4,5]
+shape_file_filter = '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
 
 seriesLst = input_x.keys()
 # attrLst =input_attrs.keys()
@@ -91,7 +92,7 @@ if train:
 else:
     period = test_period
 
-save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{num}/{train_period[0]}_{train_period[1]}/'
+save_path = f'jobs_old/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{num}/{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if not train:
     save_path =  save_path + f'{test_period[0]}_{test_period[1]}/'
@@ -104,7 +105,7 @@ os.makedirs(save_path, exist_ok=True)
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
-    crd='all', batch_size=100, train=train, device=device)
+    crd=crd, shapefile_filter_path=shape_file_filter, batch_size=100, train=train, device=device)
 
 dataloader = data_loader.get_dataloader()
 
@@ -114,7 +115,7 @@ if not train and trend_analysis:
     data_loader_future = DataLoaderWrapper( 
     clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var='', save_path=future_save_path, stat_save_path = model_save_path, 
-    crd='all', batch_size=100, train=train, device=device)
+    crd=crd, batch_size=100, train=train, device=device)
 
     dataloader_future = data_loader_future.get_dataloader_future()
 

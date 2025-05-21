@@ -1,0 +1,48 @@
+sweep:
+  clim: ['access_cm2']
+  model_type: ['MLP']
+  degree: [1]
+  layers: [4]
+  emph_quantile: [0.5]
+  time_scale: ['daily']
+  input_attrs: ['elev;slope;aspect;landcover']
+
+
+
+fixed:
+
+  ## data
+  cmip_dir: '/pscratch/sd/k/kas7897/cmip6'
+  ref_dir: '/pscratch/sd/k/kas7897/Livneh/unsplit'
+  ref: 'livneh'
+  ref_var: 'prec'
+
+  train_start: 1979
+  train_end: 2000
+  val_start: 2001
+  val_end: 2014
+  trend_start: 2075
+  trend_end: 2099
+
+  ## model params
+  epochs: 400
+  testepoch: 50
+  batch_size: 100
+
+  ## run conditions
+  trend_analysis: True
+  benchmarking: True
+  logging: True
+  train: True
+  validation: True
+
+
+  ## for spatial tests
+  # currently spatial tests by feeding CONUS HUC2 shapefiles, and the coordiantes are grouped based on the listed HUC2s
+  shapefile_filter_path: '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
+  spatial_extent_val: [1, 2, 3, 4, 5, 6]  #list the number of HUC2s you want to train your coordinates
+  spatial_extent: [13, 14, 15, 16, 17, 18] #list the number of HUC2s you want to validate your coordinates
+
+
+
+available_gpus: [0]  # <-- DROP THE LIST OF AVAILABLE GPUs HERE
