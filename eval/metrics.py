@@ -161,14 +161,30 @@ def compute_mean_bias(mask, x, y, xt):
         bias_xt = np.nanmean((xt - y) * mask_expanded, axis=0)
     return bias_x, bias_xt
 
-def compute_mean_bias_percentage(mask, x, y, xt):
-    if mask is None:
-        percent_bias_x = np.nanmean(((x - y) / (y + 1e-6)) * 100, axis=0)
-        percent_bias_xt = np.nanmean(((xt - y) / (y + 1e-6)) * 100, axis=0)
-    else:
-        mask_expanded = np.where(mask, 1, np.nan)  # Convert mask to NaN-based filter
-        percent_bias_x = np.nanmean(((x - y) / (y + 1e-6)) * 100 * mask_expanded, axis=0)  # Compute mean percentage bias location-wise
-        percent_bias_xt = np.nanmean(((xt - y) / (y + 1e-6)) * 100 * mask_expanded, axis=0)
+def compute_mean_bias_percentage(mask, x, y, xt, threshold=1.0):
+    """
+    Compute percentage bias over time at each grid cell.
+    x, y, xt: Arrays of shape (time, n_grid)
+    mask: Boolean array of shape (n_grid,) or None
+    threshold: minimum y value to consider valid
+    """
+    # Only consider points where y > threshold
+    valid = y > threshold  # shape: (time, n_grid)
+
+    if mask is not None:
+        mask = mask.astype(bool)
+        # Expand mask to match shape (time, n_grid)
+        valid = valid & mask
+
+    # Avoid divide-by-zero; set invalid comparisons to nan
+    with np.errstate(divide='ignore', invalid='ignore'):
+        bias_x = np.where(valid, ((x - y) / y) * 100, np.nan)
+        bias_xt = np.where(valid, ((xt - y) / y) * 100, np.nan)
+
+    # Now take mean over time axis (axis=0), preserving spatial dimension
+    percent_bias_x = np.nanmean(bias_x, axis=0)  # shape: (n_grid,)
+    percent_bias_xt = np.nanmean(bias_xt, axis=0)
+
     return percent_bias_x, percent_bias_xt
 
 # Function to compute bias in the number of days per category

@@ -30,3 +30,4 @@ diffDownscale.code-workspace
 *.out
 *.sbatch
 temp_folder.py
+jobs_fault

@@ -33,15 +33,16 @@ else:
 
 logging = False
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
-ref_path = '/pscratch/sd/k/kas7897/gridmet'
+ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit'
 
-clim = 'access_cm2'
-ref = 'gridmet'
-train = True
+clim = 'gfdl_esm4'
+ref = 'livneh'
+train = False
+run_id = 'a7c90ecb'
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
-ref_var = 'precipitation_amount'
+ref_var = 'prec'
 input_attrs = ['elev', 'slope', 'aspect', 'landcover']
 # input_attrs = {}
 
@@ -52,10 +53,10 @@ scenario = 'ssp5_8_5'
 trend_future_period = [2075, 2099]
 
 
-train_period = [1979, 1995]
-test_period = [1981, 1995]
+train_period = [1979, 2000]
+test_period = [2001, 2014]
 epochs = 500
-testepoch = 50
+testepoch = 150
 benchmarking = True
 
 # model params
@@ -63,8 +64,8 @@ model_type = 'MLP' #[SST, Poly2]
 # resume = False
 degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
-time_scale = 'julian-day' #choose from [daily, month, year-month, julian-day, season]
-emph_quantile = 0.5
+time_scale = 'daily' #choose from [daily, month, year-month, julian-day, season]
+emph_quantile = 0.9
 
 ## loss params
 w1 = 1
@@ -74,8 +75,8 @@ w2 = 0
 #####----- For spatial Tests--------#####
 ##number of coordinates; if all then set to 'all'
 num = 'all'
-crd = [1,2,3,4,5]
-shape_file_filter = '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
+crd = None
+shape_file_filter = None
 
 seriesLst = input_x.keys()
 # attrLst =input_attrs.keys()
@@ -84,7 +85,7 @@ seriesLst = input_x.keys()
 ###-------- Developer section here -----------###
 
 if logging:
-    exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}'
+    exp = f'conus/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
     writer = SummaryWriter(f"runs/{exp}")
 
 if train:
@@ -92,7 +93,7 @@ if train:
 else:
     period = test_period
 
-save_path = f'jobs_old/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{num}/{train_period[0]}_{train_period[1]}/'
+save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}/{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if not train:
     save_path =  save_path + f'{test_period[0]}_{test_period[1]}/'

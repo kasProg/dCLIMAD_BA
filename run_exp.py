@@ -287,13 +287,13 @@ for epoch in range(num_epochs+1):
 
                 # Extract and log median(corrected) per metric
                 for name, values in mean_bias_percentages.items():
-                    corrected = [v[1] for v in values]  # extract corrected values
+                    corrected = values[1]  # extract corrected values
                     median_corrected = float(np.median(corrected))
                     writer.add_scalar(f'median_adjusted/{name}', median_corrected, epoch)
 
                 # Extract and log median(corrected) per metric
                 for name, values in day_bias_percentages.items():
-                    corrected = [v[1] for v in values]  # extract corrected values
+                    corrected = values[1]  # extract corrected values
                     median_corrected = float(np.median(corrected))
                     writer.add_scalar(f'median_adjusted/{name}', median_corrected, epoch)
                 
