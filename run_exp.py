@@ -35,9 +35,10 @@ parser.add_argument('--time_scale', type=str, default='seasonal')
 parser.add_argument('--emph_quantile', type=float, default=0.9)
 parser.add_argument('--epochs', type=int, default=500)
 parser.add_argument('--testepoch', type=int, default=50)
-parser.add_argument('--spatial_extent', nargs='+', type=int, default=[])
-parser.add_argument('--spatial_extent_val', nargs='+', type=int, default=[])
+parser.add_argument('--spatial_extent', nargs='+', default=None)
+parser.add_argument('--spatial_extent_val', nargs='+', default=None)
 parser.add_argument('--shapefile_filter_path', type=str, default=None)
+parser.add_argument('--spatial_test', action='store_true')
 parser.add_argument('--batch_size', type=int, default=50)
 parser.add_argument('--trend_analysis', action='store_true')
 parser.add_argument('--benchmarking', action='store_true')
@@ -87,9 +88,10 @@ emph_quantile = args.emph_quantile
 
 
 ## For Spatial Test
-spatial_extent = args.spatial_extent
-spatial_extent_val = args.spatial_extent_val
-shapefile_filter_path = args.shapefile_filter_path
+spatial_test = args.spatial_test
+spatial_extent =  None if not spatial_test  else args.spatial_extent
+spatial_extent_val =  None if not spatial_test  else args.spatial_extent_val
+shapefile_filter_path =  None if not spatial_test  else args.shapefile_filter_path
 
 
 ## INPUTS

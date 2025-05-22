@@ -39,6 +39,7 @@ fixed:
 
   ## for spatial tests--- leave empty for strict temporal tests
   # currently spatial tests by feeding CONUS HUC2 shapefiles, and the coordiantes are grouped based on the listed HUC2s
+  spatial_test: False
   shapefile_filter_path: 
   spatial_extent:  #list the number of HUC2s you want to train your coordinates
   spatial_extent_val:  #list the number of HUC2s you want to validate your coordinates

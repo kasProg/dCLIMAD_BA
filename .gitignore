@@ -31,3 +31,4 @@ diffDownscale.code-workspace
 *.sbatch
 temp_folder.py
 jobs_fault
+runs_fault

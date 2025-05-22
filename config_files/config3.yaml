@@ -39,6 +39,7 @@ fixed:
 
   ## for spatial tests
   # currently spatial tests by feeding CONUS HUC2 shapefiles, and the coordiantes are grouped based on the listed HUC2s
+  spatial_test: False
   shapefile_filter_path: '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
   spatial_extent: [1, 2, 3, 4, 5, 6]  #list the number of HUC2s you want to train your coordinates
   spatial_extent_val: [14, 15, 16, 17, 18] #list the number of HUC2s you want to validate your coordinates

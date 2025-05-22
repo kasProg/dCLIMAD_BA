@@ -42,7 +42,7 @@ def launch_job(params, gpu_id, run_file):
     for k, v in params.items():
         if isinstance(v, list):
             command += [f"--{k}"] + [str(item) for item in v]
-        else:
+        elif v is not None:
             command += [f"--{k}", str(v)]
 
     # Add fixed params
@@ -52,7 +52,7 @@ def launch_job(params, gpu_id, run_file):
                 command.append(f"--{k}")
         elif isinstance(v, list):
             command += [f"--{k}"] + [str(item) for item in v]
-        else:
+        elif v is not None:
             command += [f"--{k}", str(v)]
 
     command += ["--cuda_device", str(gpu_id)]
