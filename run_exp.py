@@ -35,8 +35,8 @@ parser.add_argument('--time_scale', type=str, default='seasonal')
 parser.add_argument('--emph_quantile', type=float, default=0.9)
 parser.add_argument('--epochs', type=int, default=500)
 parser.add_argument('--testepoch', type=int, default=50)
-parser.add_argument('--spatial_extent', nargs='+', default=None)
-parser.add_argument('--spatial_extent_val', nargs='+', default=None)
+parser.add_argument('--spatial_extent', nargs='+', type=int, default=None)
+parser.add_argument('--spatial_extent_val', nargs='+', type=int, default=None)
 parser.add_argument('--shapefile_filter_path', type=str, default=None)
 parser.add_argument('--spatial_test', action='store_true')
 parser.add_argument('--batch_size', type=int, default=50)
@@ -290,13 +290,13 @@ for epoch in range(num_epochs+1):
                 # Extract and log median(corrected) per metric
                 for name, values in mean_bias_percentages.items():
                     corrected = values[1]  # extract corrected values
-                    median_corrected = float(np.median(corrected))
+                    median_corrected = float(np.nanmedian(corrected))
                     writer.add_scalar(f'median_adjusted/{name}', median_corrected, epoch)
 
                 # Extract and log median(corrected) per metric
                 for name, values in day_bias_percentages.items():
                     corrected = values[1]  # extract corrected values
-                    median_corrected = float(np.median(corrected))
+                    median_corrected = float(np.nanmedian(corrected))
                     writer.add_scalar(f'median_adjusted/{name}', median_corrected, epoch)
                 
                 

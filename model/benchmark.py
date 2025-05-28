@@ -45,12 +45,12 @@ class BiasCorrectionBenchmark:
         print("Loading dataset for benchmarking...")      
        
         self.hist_time =  torch.load(f'{self.model_path}/time.pt', weights_only=False)
-        self.hist_model = torch.load(f'{self.model_path}/x.pt', weights_only=False).cpu().numpy()
+        self.hist_model = torch.load(f'{self.model_path}/x.pt', map_location='cpu').numpy()
 
         self.test_time =  torch.load(f'{self.test_path}/time.pt', weights_only=False)
-        self.test_model = torch.load(f'{self.test_path}/x.pt', weights_only=False).cpu().numpy()
+        self.test_model = torch.load(f'{self.test_path}/x.pt', map_location='cpu').numpy()
         
-        self.reference = torch.load(f'{self.model_path}/y.pt', weights_only=False).cpu().numpy()
+        self.reference = torch.load(f'{self.model_path}/y.pt', map_location='cpu').numpy()
 
         ## needed for perfect model approach
         if os.path.exists(f'{self.model_path}/time_y.pt'):

@@ -1,5 +1,5 @@
 sweep:
-  clim: ['ipsl_cm6a_lr']
+  clim: ['mri_esm2_0']
   model_type: ['MLP']
   degree: [1, 2]
   layers: [4]
@@ -40,9 +40,9 @@ fixed:
   ## for spatial tests--- set shapefile_filter_path to None for strict temporal tests
   # currently spatial tests by feeding CONUS HUC2 shapefiles, and the coordiantes are grouped based on the listed HUC2s
   spatial_test: False
-  shapefile_filter_path: 
-  spatial_extent:  #list the number of HUC2s you want to train your coordinates
-  spatial_extent_val:  #list the number of HUC2s you want to validate your coordinates
+  shapefile_filter_path: None
+  spatial_extent: [0] #list the number of HUC2s you want to train your coordinates
+  spatial_extent_val: [0]  #list the number of HUC2s you want to validate your coordinates
 
 
 

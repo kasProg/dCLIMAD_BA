@@ -33,16 +33,16 @@ else:
 
 logging = False
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
-ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit'
+ref_path = '/pscratch/sd/k/kas7897/gridmet'
 
-clim = 'gfdl_esm4'
-ref = 'livneh'
+clim = 'access_cm2'
+ref = 'gridmet'
 train = False
-run_id = 'a7c90ecb'
+run_id = 'a8268a40'
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
-ref_var = 'prec'
+ref_var = 'precipitation_amount'
 input_attrs = ['elev', 'slope', 'aspect', 'landcover']
 # input_attrs = {}
 
@@ -54,9 +54,9 @@ trend_future_period = [2075, 2099]
 
 
 train_period = [1979, 2000]
-test_period = [2001, 2014]
+test_period = [1979, 2000]
 epochs = 500
-testepoch = 150
+testepoch = 50
 benchmarking = True
 
 # model params
@@ -65,7 +65,7 @@ model_type = 'MLP' #[SST, Poly2]
 degree = 1 # degree of transformation
 layers = 4 #number of layers to ANN
 time_scale = 'daily' #choose from [daily, month, year-month, julian-day, season]
-emph_quantile = 0.9
+emph_quantile = 0.5
 
 ## loss params
 w1 = 1
@@ -75,8 +75,8 @@ w2 = 0
 #####----- For spatial Tests--------#####
 ##number of coordinates; if all then set to 'all'
 num = 'all'
-crd = None
-shape_file_filter = None
+crd =  [14, 15, 16, 17, 18] 
+shape_file_filter = '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
 
 seriesLst = input_x.keys()
 # attrLst =input_attrs.keys()
