@@ -40,7 +40,7 @@ class DataLoaderWrapper:
 
         self.attrs_data = self.load_attrs()
         self.x_data, self.time_x = self.load_dynamic_inputs()
-        if self.scenario=='historical' or self.ref != 'livneh':
+        if self.scenario=='historical' or self.ref not in ['livneh', 'gridmet']:
             self.y_data, time_y = self.load_y_data()
 
         self.attr_tensor = self.get_attr_tensor()
@@ -53,15 +53,10 @@ class DataLoaderWrapper:
         else:
             y_clim = self.clim
         
-        if self.ref in ['livneh', 'gridmet']:
-            ds_sample = xr.open_dataset(f"{self.ref_path}/{self.ref_var}/{y_clim}/prec.1980.nc")
-        else:
-            ## perfect model framework
-            # ds_sample = xr.open_dataset(f"{self.ref_path}/historical/precipitation/{y_clim}/clipped_US.nc")
-            ds_sample = xr.open_dataset(f"{self.cmip6_dir}/{self.clim}/historical/precipitation/clipped_US.nc")
-            # return valid_crd.valid_lat_lon(ds_sample, var_name=self.ref_var)
         
-        return valid_crd.valid_lat_lon(ds = ds_sample, var_name = self.ref_var, 
+        ds_sample = xr.open_dataset(f"{self.cmip6_dir}/{self.clim}/historical/precipitation/clipped_US.nc")
+        
+        return valid_crd.valid_lat_lon(ds = ds_sample, var_name = 'pr', 
                                        shapefile_path = self.shapefile_filter_path, attr='OBJECTID', attrList = self.crd)
 
     

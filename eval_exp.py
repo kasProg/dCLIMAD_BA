@@ -1,4 +1,3 @@
- 
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -17,84 +16,13 @@ from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
 from model.benchmark import BiasCorrectionBenchmark
 import data.valid_crd as valid_crd
-import argparse
-import yaml
 import data.helper as helper
+import yaml
 
-
-###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
-
-
-parser = argparse.ArgumentParser(description='Quantile Mapping Model Configuration')
-parser.add_argument('--config', type=str, help='Path to YAML config file')
-parser.add_argument('--cuda_device', type=str, default='0')
-parser.add_argument('--logging', action='store_true')
-parser.add_argument('--clim', type=str, default='miroc6')
-parser.add_argument('--ref', type=str, default='livneh')
-parser.add_argument('--train', action='store_true')
-parser.add_argument('--validation', action='store_true')
-parser.add_argument('--model_type', type=str, default='ANN')
-parser.add_argument('--degree', type=int, default=1)
-parser.add_argument('--layers', type=int, default=4)
-parser.add_argument('--time_scale', type=str, default='seasonal')
-parser.add_argument('--emph_quantile', type=float, default=0.9)
-parser.add_argument('--epochs', type=int, default=500)
-parser.add_argument('--testepoch', type=int, default=50)
-parser.add_argument('--num', type=str, default='all')
-parser.add_argument('--batch_size', type=int, default=50)
-parser.add_argument('--trend_analysis', action='store_true')
-parser.add_argument('--benchmarking', action='store_true')
-parser.add_argument('--train_start', type=int, default=1950)
-parser.add_argument('--train_end', type=int, default=1980)
-parser.add_argument('--test_start', type=int, default=1981)
-parser.add_argument('--test_end', type=int, default=1995)
-parser.add_argument('--scneario', type=str, default='ssp5_8_5')
-parser.add_argument('--trend_start', type=int, default=2075)
-parser.add_argument('--trend_end', type=int, default=2099)
-
-args = parser.parse_args()
+###-----The code is currently accustomed to CMIP6-Livneh/gridmet Data format ----###
 
 torch.manual_seed(42)
-cuda_device = args.cuda_device
-
-logging = args.logging
-
-
-clim = args.clim
-ref = args.ref
-train = args.train
-# validation = args.validation
-
-
-### FOR TREND ANALYSIS
-trend_analysis = args.trend_analysis
-scenario = 'ssp5_8_5'
-trend_future_period = [args.trend_start, args.trend_analysis]
-
-
-train_period = [args.train_start, args.train_end]
-test_period = [args.test_start, args.test_end]
-epochs = args.epochs
-testepoch = args.testepoch
-benchmarking = args.benchmarking
-
-# model params
-model_type = args.model_type
-# resume = False
-degree = args.degree
-layers = args.layers
-time_scale = args.time_scale
-emph_quantile = args.emph_quantile
-
-
-##number of coordinates; if all then set to 'all'
-num = args.num
-# slice = 0 #for spatial test; set 0 otherwise
-batch_size = args.batch_size
-
-
-
-####------FIXED INPUTS------------####
+cuda_device = 0  # could be 'cpu' or an integer like '0', '1', etc.
 
 if cuda_device == 'cpu':
     device = torch.device('cpu')
@@ -103,81 +31,119 @@ else:
         device = torch.device(f'cuda:{cuda_device}')
     else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
+    
+run_id = 'a8268a40'
+testepoch = 50
+
+run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs/')
+# Load the config.yaml file
+with open(os.path.join(run_path, 'train_config.yaml'), 'r') as f:
+    config = yaml.safe_load(f)
 
 
-cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
-ref_path = '/pscratch/sd/k/kas7897/Livneh/unsplit/'
+logging = False
+cmip6_dir = config['cmip_dir']
+ref_path = config['ref_dir']
+
+clim = config['clim']
+ref = config['ref']
+train = False
 
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
-target_y = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
-input_attrs = {'elevation': ['elev', 'elevation']}
+ref_var = config['ref_var']
+input_attrs = config['input_attrs'].split(';')
+# input_attrs = {}
+
+
+### FOR TREND ANALYSIS
+trend_analysis = config['trend_analysis']
+scenario = config['scenario']
+trend_future_period = [config['trend_start'], config['trend_end']]
+
+
+try:
+    test_period = [config['test_start'], config['test_end']]
+except KeyError:
+    print("⚠️  'test_start' not found. Falling back to 'val_start' and 'val_end'.")
+    test_period = [config['val_start'], config['val_end']]
+
+train_period = [config['train_start'], config['train_end']]
+benchmarking = config['benchmarking']
+
+
+# model params
+model_type = config['model_type'] #[SST, Poly2]
+degree = config['degree'] # degree of transformation
+layers = config['layers'] #number of layers to ANN
+time_scale = config['time_scale'] #choose from [daily, month, year-month, julian-day, season]
+emph_quantile = config['emph_quantile']
+batch_size = config['batch_size']
+epochs = config['epochs']
 
 ## loss params
 w1 = 1
 w2 = 0
 # ny = 4 # number of params
 
-seriesLst = input_x.keys()
-attrLst =input_attrs.keys()
+#####----- For spatial Tests--------#####
+## For Spatial Test
+spatial_test = config['spatial_test']
+spatial_extent =  None if not spatial_test  else config['spatial_extent_val']
+shapefile_filter_path =  None if not spatial_test  else config['shapefile_filter_path']
+# crd =  [14, 15, 16, 17, 18] 
+# shape_file_filter = '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
+
 
 
 ###-------- Developer section here -----------###
 
 if logging:
-    exp = f'conus/{clim}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}'
+    exp = f'conus/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
     writer = SummaryWriter(f"runs/{exp}")
 
 
-save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{num}/{train_period[0]}_{train_period[1]}/'
+save_path = run_path
 model_save_path = save_path
-
-val_save_path =  save_path + f'{test_period[0]}_{test_period[1]}/'
-
-test_save_path = val_save_path + f'ep{testepoch}'
+save_path =  save_path + f'/{test_period[0]}_{test_period[1]}/'
+test_save_path = save_path + f'ep{testepoch}'
 os.makedirs(test_save_path, exist_ok=True)
 
-args_dict = vars(args)  # Converts argparse Namespace into a dictionary
-with open(os.path.join(test_save_path, "test_config.yaml"), "w") as f:
-    yaml.dump(args_dict, f)
+
 
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=test_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
-    input_x=input_x, input_attrs=input_attrs, target_y=target_y, save_path=save_path, stat_save_path = model_save_path,
-    crd='all', batch_size=batch_size, train=train, device=device)
+    input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
+    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, device=device)
 
 dataloader = data_loader.get_dataloader()
 
 if trend_analysis:
-    future_save_path = model_save_path + f'{scenario}_{trend_future_period[0]}_{trend_future_period[1]}/'
+    future_save_path = model_save_path + f'/{scenario}_{trend_future_period[0]}_{trend_future_period[1]}/'
     os.makedirs(future_save_path, exist_ok=True)
-    data_loader_future = DataLoaderWrapper(
+    data_loader_future = DataLoaderWrapper( 
     clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
-    input_x=input_x, input_attrs=input_attrs, target_y={}, save_path=future_save_path, stat_save_path = model_save_path, 
-    crd='all', batch_size=100, train=train, device=device)
+    input_x=input_x, input_attrs=input_attrs, ref_var='', save_path=future_save_path, stat_save_path = model_save_path, 
+    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, device=device)
 
     dataloader_future = data_loader_future.get_dataloader_future()
-    with open(os.path.join(future_save_path, "future_config.yaml"), "w") as f:
-        yaml.dump(args_dict, f)
 
 valid_coords = data_loader.get_valid_coords()
 _, time_x = data_loader.load_dynamic_inputs()
 nx = len(input_x)+ len(input_attrs)
 
-if time_scale!= 'daily':
-    time_labels = helper.extract_time_labels(time_x, label_type=time_scale)
-    if trend_analysis:
-        _, time_x_future = data_loader_future.load_dynamic_inputs()
-        time_labels_future = helper.extract_time_labels(time_x_future, label_type=time_scale)
+if time_scale == 'daily':
+    time_labels = time_labels_future = 'daily'
 else:
-    time_labels = 'daily'
-    time_labels_future = 'daily'
-
+    time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
+    time_labels_future = helper.extract_time_labels(data_loader_future.load_dynamic_inputs()[1], label_type=time_scale) if trend_analysis else None
 
 model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
+    
 
-model.load_state_dict(torch.load(f'{model_save_path}/model_{testepoch}.pth', weights_only=True))
+
+model.load_state_dict(torch.load(f'{model_save_path}/model_{testepoch}.pth', weights_only=True, map_location=device))
 model.eval()
 transformed_x = []
 transformed_x_future = []
@@ -189,7 +155,7 @@ with torch.no_grad():
         batch_input_norm, batch_x, batch_y = [b.to(device) for b in batch]
 
         # Forward pass
-        predictions = model(batch_x, batch_input_norm, time_labels)
+        predictions = model(batch_x, batch_input_norm, time_scale = time_labels)
 
         # Store predictions
         transformed_x.append(predictions.cpu())
@@ -202,7 +168,7 @@ with torch.no_grad():
             batch_input_norm, batch_x = [b.to(device) for b in batch]
 
             # Forward pass
-            predictions = model(batch_x, batch_input_norm, time_labels_future)
+            predictions = model(batch_x, batch_input_norm, time_scale = time_labels_future)
 
             # Store predictions
             transformed_x_future.append(predictions.cpu())

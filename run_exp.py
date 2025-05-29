@@ -125,7 +125,7 @@ if logging:
     writer = SummaryWriter(f"runs/{exp}")
 
 
-save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}/{train_period[0]}_{train_period[1]}/'
+save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if validation:
     val_save_path =  save_path + f'{val_period[0]}_{val_period[1]}/'

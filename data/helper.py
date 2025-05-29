@@ -10,6 +10,7 @@ from scipy.interpolate import griddata
 import cftime
 import hashlib
 import yaml
+import os
 
 
 
@@ -260,3 +261,18 @@ def generate_run_id(args_dict):
     config_str = yaml.dump(args_dict, default_flow_style=False, sort_keys=True)
     run_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]  # Short, 8-char hash
     return run_hash
+
+def load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs/'):
+    # Find path for run_id
+    pattern = os.path.join(base_dir, '*','*', f'*{run_id}*')  # Wildcard to match structure
+    matching_dirs = glob.glob(pattern)
+    
+    if not matching_dirs:
+        raise FileNotFoundError(f"No directory found for run_id {run_id}")
+    if len(matching_dirs) > 1:
+        raise ValueError(f"Multiple directories found for run_id {run_id}, please resolve ambiguity:\n{matching_dirs}")
+    
+    run_path = matching_dirs[0]
+
+
+    return run_path
