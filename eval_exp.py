@@ -89,7 +89,10 @@ w2 = 0
 #####----- For spatial Tests--------#####
 ## For Spatial Test
 spatial_test = config['spatial_test']
-spatial_extent =  None if not spatial_test  else config['spatial_extent_val']
+try:
+    spatial_extent =  None if not spatial_test  else config['spatial_extent_test']
+except KeyError:
+    spatial_extent =  None if not spatial_test  else config['spatial_extent_val']
 shapefile_filter_path =  None if not spatial_test  else config['shapefile_filter_path']
 # crd =  [14, 15, 16, 17, 18] 
 # shape_file_filter = '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
