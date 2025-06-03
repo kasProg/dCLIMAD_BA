@@ -13,9 +13,9 @@ fixed:
 
   ## data
   cmip_dir: '/pscratch/sd/k/kas7897/cmip6'
-  ref_dir: '/pscratch/sd/k/kas7897/Livneh/unsplit'
-  ref: 'livneh'
-  ref_var: 'prec'
+  ref_dir: '/pscratch/sd/k/kas7897/gridmet'
+  ref: 'gridmet'
+  ref_var: 'precipitation_amount'
 
   train_start: 1979
   train_end: 2000
@@ -41,8 +41,8 @@ fixed:
   # currently spatial tests by feeding CONUS HUC2 shapefiles, and the coordiantes are grouped based on the listed HUC2s
   spatial_test: True
   shapefile_filter_path: '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
-  spatial_extent: [1, 2, 3, 4, 5, 6]  #list the number of HUC2s you want to train your coordinates
-  spatial_extent_val: [14, 15, 16, 17, 18] #list the number of HUC2s you want to validate your coordinates
+  spatial_extent: [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18]  #list the number of HUC2s you want to train your coordinates
+  spatial_extent_val: [3, 17] #list the number of HUC2s you want to validate your coordinates
 
 
 
