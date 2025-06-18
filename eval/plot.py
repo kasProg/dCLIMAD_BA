@@ -7,7 +7,7 @@ import geopandas as gpd
 from esda.moran import Moran
 from libpysal.weights import KNN
 
-def plot_violin_bias(ax, bias_data, bias_label, title, method_names=None, remove_outlier=False):
+def plot_violin_bias(ax, bias_data, bias_label, title, method_names=None, remove_outlier=False, xlabel = 'Precipitation Index'):
     """
     Function to plot a violin plot comparing raw vs. multiple corrected bias data with method names.
 
@@ -93,7 +93,7 @@ def plot_violin_bias(ax, bias_data, bias_label, title, method_names=None, remove
     ax.set_xticks(list(category_positions.values()))
     ax.set_xticklabels(list(category_positions.keys()), fontsize=12, fontweight='bold')
 
-    ax.set_xlabel("Precipitation Index")
+    ax.set_xlabel(xlabel)
     ax.set_title(title)
     ax.set_ylabel(bias_label)
     ax.grid(axis="y", linestyle="--", alpha=0.7)
