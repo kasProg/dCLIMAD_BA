@@ -5,7 +5,11 @@ import geopandas as gpd
 from esda.moran import Moran
 from libpysal.weights import KNN
 import warnings
+from scipy.stats import genextreme
+from scipy.stats import bootstrap
+from scipy.stats import gaussian_kde
 warnings.simplefilter(action='ignore', category=FutureWarning)
+
 
 # Function to determine season from month
 def get_season(month):
@@ -300,3 +304,207 @@ def compute_morans_i(values, valid_coords, k=5):
     w.transform = 'R'  # Row-standardized weights
     moran = Moran(values, w)  # Compute Moran's I
     return moran.I, moran.p_sim  # Return Moran's I value and p-value
+
+
+
+
+def calculate_annual_maxima(data, time_arr):
+    # Convert time array to pandas datetime for grouping
+    time_pd = pd.to_datetime(time_arr)
+
+    # Extract year from each timestamp
+    years = time_pd.year
+
+    # Create a DataFrame to associate each timestamp with its year
+    df_years = pd.DataFrame({'year': years})
+
+    # Find the unique years
+    unique_years = np.unique(years)
+
+    # Preallocate output: (years, coordinates)
+    annual_max = np.full((len(unique_years), data.shape[1]), np.nan)
+
+    for i, yr in enumerate(unique_years):
+        # Indices where the year matches
+        idx = df_years['year'] == yr
+
+        # Max over time axis (i.e., for that year's data)
+        annual_max[i] = np.nanmax(data[idx.values], axis=0)
+
+    return annual_max
+
+
+def fit_stationary_gev(data, return_periods=[5, 10, 20, 50, 100], n_bootstrap=1000, ci=0.95):
+    """
+    Fits a stationary GEV distribution and computes return level metrics with CI.
+    
+    Parameters:
+        data: 1D array of annual maxima
+        return_periods: list of return periods
+        n_bootstrap: number of bootstrap samples
+        ci: confidence level
+    
+    Returns:
+        dict of return period → (low, best, high) values
+    """
+    data = np.asarray(data)
+    data = data[~np.isnan(data)]
+    
+    # Fit GEV: scipy uses c=-shape
+    shape, loc, scale = genextreme.fit(data)
+    
+    alpha = 1 - ci
+    z = {}
+
+    # Calculate return levels for best-fit GEV
+    for rp in return_periods:
+        prob = 1 - 1/rp
+        rl_best = genextreme.ppf(prob, shape, loc=loc, scale=scale)
+        z[rp] = {'best': rl_best, 'low': None, 'high': None}
+
+    # Bootstrap CI
+    boot_vals = []
+
+    rng = np.random.default_rng()
+    for _ in range(n_bootstrap):
+        sample = rng.choice(data, size=len(data), replace=True)
+        try:
+            s, l, sc = genextreme.fit(sample)
+            rl = [genextreme.ppf(1 - 1/rp, s, loc=l, scale=sc) for rp in return_periods]
+            boot_vals.append(rl)
+        except:
+            continue  # skip if fit fails
+
+    boot_vals = np.array(boot_vals)  # shape (samples, periods)
+    lower = np.percentile(boot_vals, 2.5, axis=0)
+    upper = np.percentile(boot_vals, 97.5, axis=0)
+
+    for i, rp in enumerate(return_periods):
+        z[rp]['low'] = lower[i]
+        z[rp]['high'] = upper[i]
+
+    return z
+
+
+def pdfskill(obs, mod, bandwidth='scott', num_points=1000):
+    """
+    Computes the Perkins skill score — the area of overlap between the PDFs of obs and mod.
+    
+    Parameters:
+        obs (array-like): Observed data (1D array).
+        mod (array-like): Modeled data (1D array).
+        bandwidth (str or float): Bandwidth for KDE. Options: 'scott', 'silverman', or a float.
+        num_points (int): Number of evaluation points for the PDFs.
+        
+    Returns:
+        float: Overlap skill score between 0 and 1.
+    """
+    obs = np.asarray(obs)
+    mod = np.asarray(mod)
+
+    obs = obs[~np.isnan(obs)]
+    mod = mod[~np.isnan(mod)]
+
+    combined = np.concatenate([obs, mod])
+    x_eval = np.linspace(np.min(combined), np.max(combined), num_points)
+
+    kde_obs = gaussian_kde(obs, bw_method=bandwidth)
+    kde_mod = gaussian_kde(mod, bw_method=bandwidth)
+
+    pdf_obs = kde_obs(x_eval)
+    pdf_mod = kde_mod(x_eval)
+
+    # Area of overlap
+    overlap = np.trapz(np.minimum(pdf_obs, pdf_mod), x_eval)
+
+    return overlap
+
+def all_pdfskill(obs, mod, bandwidth='scott', num_points=1000):
+    scores = []
+    for i in range(obs.shape[1]):  # Loop over coordinates
+        score = pdfskill(obs[:, i], mod[:, i], bandwidth=bandwidth, num_points=num_points)
+        scores.append(score)
+    return scores
+
+
+
+
+def tailskill(obs, mod, threshold=0.95, bandwidth='scott', num_points=1000):
+    """
+    Computes a tail-focused skill score based on the area difference
+    between the tails of two PDFs, weighted linearly outward.
+    
+    Parameters:
+        obs (array-like): Observed data.
+        mod (array-like): Modeled data.
+        threshold (float): Probability threshold (e.g., 0.95 for upper tail).
+        bandwidth (str or float): KDE bandwidth.
+        num_points (int): Number of points for KDE evaluation.
+    
+    Returns:
+        float: Tail skill score (0 = no skill, 1 = perfect match).
+    """
+    obs = np.asarray(obs)
+    mod = np.asarray(mod)
+    obs = obs[~np.isnan(obs)]
+    mod = mod[~np.isnan(mod)]
+
+    if not (0 < threshold < 1):
+        raise ValueError("Threshold must be between 0 and 1.")
+
+    # Determine whether to use upper or lower tail
+    lower_tail = threshold < 0.5
+
+    # Common evaluation grid
+    combined = np.concatenate([obs, mod])
+    x_eval = np.linspace(np.min(combined), np.max(combined), num_points)
+
+    kde_obs = gaussian_kde(obs, bw_method=bandwidth)
+    kde_mod = gaussian_kde(mod, bw_method=bandwidth)
+
+    pdf_obs = kde_obs(x_eval)
+    pdf_mod = kde_mod(x_eval)
+
+    # Estimate CDF of observed data from the PDF
+    dx = x_eval[1] - x_eval[0]
+    cdf_obs = np.cumsum(pdf_obs) * dx
+
+    # Find the index at which the threshold CDF is exceeded
+    if lower_tail:
+        tail_idx = np.where(cdf_obs <= threshold)[0]
+    else:
+        tail_idx = np.where(cdf_obs >= threshold)[0]
+
+    if len(tail_idx) == 0:
+        return 0.0  # No tail region found
+
+    # Slice the tail
+    tail_slice = tail_idx if lower_tail else tail_idx
+
+    tail_pdf_obs = pdf_obs[tail_slice]
+    tail_pdf_mod = pdf_mod[tail_slice]
+    tail_x = x_eval[tail_slice]
+
+    # Compute absolute PDF difference
+    diff = np.abs(tail_pdf_obs - tail_pdf_mod)
+
+    # Weighting: linearly increasing outward
+    weight = np.linspace(0, 1, len(diff)) * 10
+    if lower_tail:
+        weight = weight[::-1]
+
+    weighted_diff = diff * weight
+    total_weighted_error = np.sum(weighted_diff) * dx
+
+    # Convert to skill score
+    skill = 1 / (1 + total_weighted_error)
+
+    return skill
+
+def mean_tailskill(obs, mod, threshold=0.95):
+    # Computes average tail skill across coordinates (columns)
+    scores = []
+    for i in range(obs.shape[1]):
+        score = tailskill(mod[:, i], obs[:, i], threshold=threshold)
+        scores.append(score)
+    return np.nanmean(scores)
