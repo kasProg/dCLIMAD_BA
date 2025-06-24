@@ -341,10 +341,10 @@ def fallback_return_levels(data, return_periods):
     probs = 1 - 1 / np.array(return_periods)
     rl = gumbel_r.ppf(probs, loc=loc, scale=scale)
 
-    z = {}
-    for rp, r in zip(return_periods, rl):
-        z[rp] = {'best': r, 'low': None, 'high': None}
-    return z
+    # z = {}
+    # for rp, r in zip(return_periods, rl):
+    #     z[rp] = {'best': r, 'low': None, 'high': None}
+    return rl, None, None
 
 def fit_stationary_gev(data, return_periods=[5, 10, 20, 50, 100], n_bootstrap=1000, ci=0.95):
     """
@@ -403,7 +403,7 @@ def fit_stationary_gev(data, return_periods=[5, 10, 20, 50, 100], n_bootstrap=10
             z[rp]['low'] = lower[i]
             z[rp]['high'] = upper[i]
 
-    return z
+    return rl_best, lower, upper
 
 def pdfskill(obs, mod, bandwidth='scott', num_points=1000):
     """
