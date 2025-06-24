@@ -5,9 +5,10 @@ import geopandas as gpd
 from esda.moran import Moran
 from libpysal.weights import KNN
 import warnings
-from scipy.stats import genextreme
 from scipy.stats import bootstrap
 from scipy.stats import gaussian_kde
+from scipy.stats import genextreme, gumbel_r
+
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
@@ -334,57 +335,75 @@ def calculate_annual_maxima(data, time_arr):
     return annual_max
 
 
+
+def fallback_return_levels(data, return_periods):
+    loc, scale = gumbel_r.fit(data)
+    probs = 1 - 1 / np.array(return_periods)
+    rl = gumbel_r.ppf(probs, loc=loc, scale=scale)
+
+    z = {}
+    for rp, r in zip(return_periods, rl):
+        z[rp] = {'best': r, 'low': None, 'high': None}
+    return z
+
 def fit_stationary_gev(data, return_periods=[5, 10, 20, 50, 100], n_bootstrap=1000, ci=0.95):
     """
     Fits a stationary GEV distribution and computes return level metrics with CI.
-    
-    Parameters:
-        data: 1D array of annual maxima
-        return_periods: list of return periods
-        n_bootstrap: number of bootstrap samples
-        ci: confidence level
-    
-    Returns:
-        dict of return period → (low, best, high) values
+    Falls back to Gumbel if shape parameter is unstable or return levels blow up.
     """
     data = np.asarray(data)
     data = data[~np.isnan(data)]
-    
-    # Fit GEV: scipy uses c=-shape
-    shape, loc, scale = genextreme.fit(data)
-    
-    alpha = 1 - ci
+
+    if len(data) < 5:
+        raise ValueError("Not enough data to fit GEV.")
+
+    probs = 1 - 1 / np.array(return_periods)
     z = {}
 
-    # Calculate return levels for best-fit GEV
-    for rp in return_periods:
-        prob = 1 - 1/rp
-        rl_best = genextreme.ppf(prob, shape, loc=loc, scale=scale)
-        z[rp] = {'best': rl_best, 'low': None, 'high': None}
+    # ===== Step 1: GEV Fit =====
+    try:
+        shape, loc, scale = genextreme.fit(data)
+        rl_best = genextreme.ppf(probs, shape, loc=loc, scale=scale)
 
-    # Bootstrap CI
+        if np.abs(shape) > 0.5 or np.any(rl_best > 1000) or np.any(~np.isfinite(rl_best)):
+            print(f"⚠️ Unstable shape (ξ = {shape:.3f}) or exploding return level detected. Switching to Gumbel fallback.")
+            return fallback_return_levels(data, return_periods)
+        
+        for i, rp in enumerate(return_periods):
+            z[rp] = {'best': rl_best[i], 'low': None, 'high': None}
+
+    except Exception as e:
+        print(f"❌ GEV fit failed: {e}. Switching to Gumbel fallback.")
+        return fallback_return_levels(data, return_periods)
+
+    # ===== Step 2: Bootstrap CIs =====
     boot_vals = []
-
     rng = np.random.default_rng()
+
     for _ in range(n_bootstrap):
         sample = rng.choice(data, size=len(data), replace=True)
         try:
             s, l, sc = genextreme.fit(sample)
-            rl = [genextreme.ppf(1 - 1/rp, s, loc=l, scale=sc) for rp in return_periods]
-            boot_vals.append(rl)
+            rl = genextreme.ppf(probs, s, loc=l, scale=sc)
+            if np.abs(s) <= 0.5 and np.all(np.isfinite(rl)) and np.max(rl) < 1000:
+                boot_vals.append(rl)
         except:
-            continue  # skip if fit fails
+            continue
 
-    boot_vals = np.array(boot_vals)  # shape (samples, periods)
-    lower = np.percentile(boot_vals, 2.5, axis=0)
-    upper = np.percentile(boot_vals, 97.5, axis=0)
-
-    for i, rp in enumerate(return_periods):
-        z[rp]['low'] = lower[i]
-        z[rp]['high'] = upper[i]
+    boot_vals = np.array(boot_vals)
+    if boot_vals.shape[0] < 50:
+        print("⚠️ Too few stable bootstrap samples. CI not computed.")
+        for rp in return_periods:
+            z[rp]['low'] = np.nan
+            z[rp]['high'] = np.nan
+    else:
+        lower = np.percentile(boot_vals, 2.5, axis=0)
+        upper = np.percentile(boot_vals, 97.5, axis=0)
+        for i, rp in enumerate(return_periods):
+            z[rp]['low'] = lower[i]
+            z[rp]['high'] = upper[i]
 
     return z
-
 
 def pdfskill(obs, mod, bandwidth='scott', num_points=1000):
     """
