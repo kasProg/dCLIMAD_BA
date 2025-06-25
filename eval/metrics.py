@@ -336,7 +336,7 @@ def calculate_annual_maxima(data, time_arr):
 
 
 
-def fallback_return_levels(data, return_periods):
+def fallback_return_levels(data, return_periods, n_bootstrap=1000):
     loc, scale = gumbel_r.fit(data)
     probs = 1 - 1 / np.array(return_periods)
     rl = gumbel_r.ppf(probs, loc=loc, scale=scale)
@@ -344,9 +344,33 @@ def fallback_return_levels(data, return_periods):
     # z = {}
     # for rp, r in zip(return_periods, rl):
     #     z[rp] = {'best': r, 'low': None, 'high': None}
-    return rl, None, None
 
-def fit_stationary_gev(data, return_periods=[5, 10, 20, 50, 100], n_bootstrap=1000, ci=0.95):
+        # Bootstrap confidence intervals
+    rng = np.random.default_rng()
+    boot_vals = []
+
+    for _ in range(n_bootstrap):
+        sample = rng.choice(data, size=len(data), replace=True)
+        try:
+            l, s = gumbel_r.fit(sample)
+            rl = gumbel_r.ppf(probs, loc=l, scale=s)
+            if np.all(np.isfinite(rl)) and np.max(rl) < 1000:
+                boot_vals.append(rl)
+        except:
+            continue
+
+    boot_vals = np.array(boot_vals)
+    if boot_vals.shape[0] < 50:
+        print("⚠️ Too few bootstrap samples for Gumbel. CI not computed.")
+        lower = [np.nan] * len(return_periods)
+        upper = [np.nan] * len(return_periods)
+    else:
+        lower = np.percentile(boot_vals, 2.5, axis=0)
+        upper = np.percentile(boot_vals, 97.5, axis=0)
+
+    return rl, lower, upper
+
+def fit_stationary_gev(data, return_periods=[5, 10, 20, 50, 100], n_bootstrap=1000):
     """
     Fits a stationary GEV distribution and computes return level metrics with CI.
     Falls back to Gumbel if shape parameter is unstable or return levels blow up.
