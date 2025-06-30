@@ -335,6 +335,31 @@ def calculate_annual_maxima(data, time_arr):
     return annual_max
 
 
+def calculate_annual_total(data, time_arr):
+    # Convert time array to pandas datetime for grouping
+    time_pd = pd.to_datetime(time_arr)
+
+    # Extract year from each timestamp
+    years = time_pd.year
+
+    # Create a DataFrame to associate each timestamp with its year
+    df_years = pd.DataFrame({'year': years})
+
+    # Find the unique years
+    unique_years = np.unique(years)
+
+    # Preallocate output: (years, coordinates)
+    annual_max = np.full((len(unique_years), data.shape[1]), np.nan)
+
+    for i, yr in enumerate(unique_years):
+        # Indices where the year matches
+        idx = df_years['year'] == yr
+
+        # Max over time axis (i.e., for that year's data)
+        annual_max[i] = np.nansum(data[idx.values], axis=0)
+
+    return annual_max
+
 
 def fallback_return_levels(data, return_periods, n_bootstrap=1000):
     loc, scale = gumbel_r.fit(data)
