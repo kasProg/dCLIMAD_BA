@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 import pandas as pd
 import numpy as np
-from model.model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
+from model.model import QuantileMappingModel1, QuantileMappingModel
 from model.loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
 import data.process as process
 from sklearn.preprocessing import StandardScaler
@@ -32,8 +32,8 @@ else:
     else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
     
-run_id = 'f14735d7'
-testepoch = 50
+run_id = 'd69030f6'
+testepoch = 300
 
 run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs/')
 # Load the config.yaml file
@@ -142,6 +142,7 @@ else:
     time_labels_future = helper.extract_time_labels(data_loader_future.load_dynamic_inputs()[1], label_type=time_scale) if trend_analysis else None
 
 model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
+# model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
     
 

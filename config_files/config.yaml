@@ -1,11 +1,11 @@
 sweep:
-  clim: ['ipsl_cm6a_lr']
+  clim: ['access_cm2']
   model_type: ['MLP']
-  degree: [1, 2]
+  degree: [5]
   layers: [4]
   emph_quantile: [0.5, 0.9, 0.95]
   time_scale: ['daily', 'year-month', 'julian-day', 'month', 'season']
-  input_attrs: ['elev;slope;aspect', 'elev;slope;aspect;landcover']
+  input_attrs: ['elev;slope;aspect;landcover']
 
 
 
@@ -44,4 +44,4 @@ fixed:
   spatial_extent:  #list the number of HUC2s you want to train your coordinates
   spatial_extent_val:  #list the number of HUC2s you want to validate your coordinates
 
-available_gpus: [0, 1, 2, 3]  # <-- HERE
+available_gpus: [0]  # <-- HERE

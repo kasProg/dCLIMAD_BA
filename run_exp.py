@@ -2,7 +2,7 @@ import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import os
-from model.model import QuantileMappingModel_, QuantileMappingModel, QuantileMappingModel_Poly2
+from model.model import QuantileMappingModel, QuantileMappingModel1
 from model.loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
 from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
@@ -162,7 +162,9 @@ else:
 
 
 nx = len(input_x)+ len(input_attrs)
+
 model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
+# model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
     
 optimizer = optim.Adam(model.parameters(), lr=0.01)
@@ -187,6 +189,7 @@ for epoch in range(num_epochs+1):
 
         # Forward pass
         transformed_x = model(batch_x, batch_input_norm, time_scale=time_labels)
+        # loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
 
         # Compute the loss
         # kl_loss = 0.699*kl_divergence_loss(transformed_x.T, batch_y.T, num_bins=1000)
@@ -195,7 +198,7 @@ for epoch in range(num_epochs+1):
         rainy_loss = w2*rainy_day_loss(transformed_x.T, batch_y.T)
         # ws_dist = 0.5*wasserstein_distance_loss(transformed_x.T, batch_y.T)
         # trendloss = trend_loss(transformed_x.T, batch_x.T, device)
-        loss = dist_loss + rainy_loss 
+        loss = dist_loss + rainy_loss
         # loss = dist_loss + kl_loss + ws_dist + balance_loss * rainy_loss
 
         # loss = dist_loss + balance_loss * rainy_loss
@@ -241,10 +244,11 @@ for epoch in range(num_epochs+1):
                     batch_y = batch_y.to(device)
 
                     transformed_x = model(batch_x, batch_input_norm, time_labels_val)
+                    val_loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
 
                     val_dist_loss = w1 * distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)
                     val_rainy_loss = w2 * rainy_day_loss(transformed_x.T, batch_y.T)
-                    val_loss = val_dist_loss + val_rainy_loss
+                    val_loss = val_dist_loss + val_rainy_loss + val_loss_l1
 
                     val_epoch_loss += val_loss.item()
                     # Store predictions
