@@ -27,12 +27,12 @@ def get_xt_nc_path_from_id(id: str, test_period: tuple, testep: int) -> str:
 
 
 configs = [
-    {"id": "7f6b6147", "test_period": (2001, 2014), "testep": 50},
-    {"id": "01f207a2", "test_period": (2001, 2014), "testep": 150},
-    {"id": "3e1d3c5b", "test_period": (2001, 2014), "testep": 50},
-    {"id": "748c5922", "test_period": (2001, 2014), "testep": 150},
-    {"id": "a7d64b57", "test_period": (2001, 2014), "testep": 100},
-    {"id": "71f57da0", "test_period": (2001, 2014), "testep": 100},
+    {"id": "0bc32e5c", "test_period": (2001, 2014), "testep": 50},
+    {"id": "d6dd3dc9", "test_period": (2001, 2014), "testep": 150},
+    {"id": "bd9fce10", "test_period": (2001, 2014), "testep": 50},
+    {"id": "a4cda17c", "test_period": (2001, 2014), "testep": 300},
+    {"id": "92e4a6e2", "test_period": (2001, 2014), "testep": 300},
+    {"id": "b1f79580", "test_period": (2001, 2014), "testep": 300},
 ]
 
 
@@ -64,7 +64,7 @@ configs = [
 
 variables = {'precipitation':'pr'}
 # exps = {'historical': 'historical'}
-exps = ['dCLIMAD-BA (0.5Q-Livneh)']
+exps = ['dCLIMAD-BA']
 period = [2001, 2014]
 ensemble_path = f'/pscratch/sd/k/kas7897/cmip6/ensemble/1979_2000/{period[0]}_{period[1]}/'
 
@@ -145,7 +145,7 @@ for var in variables:
             ]
         ensemble = xr.concat(interpolated_clim_array, dim="stacked").mean(dim="stacked")
 
-        ensemble.to_netcdf(f'{save_path}/ensemble.nc')
+        ensemble.to_netcdf(f'{save_path}/ensemble2.nc')
         print(f'Yo Yo Ensemble Done Boy {exp}__{var}')
 
 
@@ -157,5 +157,5 @@ for var in variables:
 #     "emph_quantile": emph_quantile,
 # }
 
-with open(f"{ensemble_path}/clim_models.json", "w") as f:
+with open(f"{ensemble_path}/clim_models2.json", "w") as f:
     json.dump(configs, f, indent=4)
