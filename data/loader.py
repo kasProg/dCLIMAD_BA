@@ -2,16 +2,18 @@ import os
 import torch
 import xarray as xr
 from torch.utils.data import DataLoader, TensorDataset
+import torch.nn.functional as F
 import data.valid_crd as valid_crd
 import data.process as process  # Corrected import
 from data.helper import UnitManager
+import numpy as np
 
 ### Some limitations: 
 # Loyal to CONUS region, eg files named clipped_US
 
 class DataLoaderWrapper:
     def __init__(self, clim, scenario, ref, period, ref_path, cmip6_dir, shapefile_filter_path,
-                 input_x, input_attrs, ref_var, save_path, stat_save_path, crd='all', batch_size=100, train=True, device=0):
+                 input_x, input_attrs, ref_var, save_path, stat_save_path, crd='all', batch_size=100, train=True, autoregression = False, device=0):
         """
         Customizable climate data loader with future projection support.
         """
@@ -34,7 +36,7 @@ class DataLoaderWrapper:
         self.save_path = save_path
         self.stat_save_path = stat_save_path
 
-
+        self.autoregression = autoregression
 
         self.valid_coords = self.get_valid_coords()
 
@@ -219,6 +221,11 @@ class DataLoaderWrapper:
         x = self.x_data.squeeze().T
         y = self.y_data.squeeze().T
 
+        if self.autoregression:
+            self.input_norm_tensor = self.build_autoregressive_dataset(norm_input=self.input_norm_tensor, k=3)
+            # x = torch.tensor(x).to(self.device)
+            # y = torch.tensor(y).to(self.device)
+
         dataset = TensorDataset(self.input_norm_tensor, x, y)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
     
@@ -227,5 +234,44 @@ class DataLoaderWrapper:
         """Returns a PyTorch DataLoader."""
         x = self.x_data.squeeze().T
 
+        if self.autoregression:
+            self.input_norm_tensor = self.build_autoregressive_dataset(norm_input=self.input_norm_tensor, k=3)
+
         dataset = TensorDataset(self.input_norm_tensor, x)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
+    
+    def build_autoregressive_dataset(self, norm_input, k, tv_idx=0, static_idxs=[1, 2, 3, 4]):
+        """
+        norm_input: (coords, time, features)
+        k: number of lags (uses past k+1 values)
+        tv_idx: index of time-varying feature
+        static_idxs: indices of time-invariant features
+        
+        Returns:
+            X: (coords, time, input_dim) -- with padded lags
+        """
+        coords, time, features = norm_input.shape
+        device = norm_input.device
+
+        # Time-varying feature
+        prcp = norm_input[:, :, tv_idx]  # (coords, time)
+
+        # Pad on the left (k zeros) for lagging
+        prcp_padded = F.pad(prcp, pad=(k, 0), mode='constant', value=0)  # (coords, time + k)
+
+        # Build lag window
+        lagged = []
+        for j in reversed(range(k + 1)):
+            lagged.append(prcp_padded[:, j:j + time])  # (coords, time)
+        
+        prcp_stack = torch.stack(lagged, dim=-1)  # (coords, time, k+1)
+
+        # Static features
+        static_feat = norm_input[:, 0, static_idxs]  # (coords, static_dim)
+        static_feat = static_feat.unsqueeze(1).expand(-1, time, -1)  # (coords, time, static_dim)
+
+        # Combine
+        X = torch.cat([prcp_stack, static_feat], dim=-1)  # (coords, time, input_dim)
+
+        return X
+            

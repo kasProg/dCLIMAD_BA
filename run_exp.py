@@ -49,6 +49,7 @@ parser.add_argument('--val_end', type=int, default=1995)
 parser.add_argument('--scenario', type=str, default='ssp5_8_5')
 parser.add_argument('--trend_start', type=int, default=2075)
 parser.add_argument('--trend_end', type=int, default=2099)
+parser.add_argument('--autoregression', action='store_true')
 
 
 args = parser.parse_args()
@@ -92,6 +93,9 @@ spatial_test = args.spatial_test
 spatial_extent =  None if not spatial_test  else args.spatial_extent
 spatial_extent_val =  None if not spatial_test  else args.spatial_extent_val
 shapefile_filter_path =  None if not spatial_test  else args.shapefile_filter_path
+
+
+autoregression = args.autoregression
 
 
 ## INPUTS
@@ -141,7 +145,7 @@ with open(os.path.join(save_path, "train_config.yaml"), "w") as f:
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=train_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
-    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, device=device)
+    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, device=device)
 
 dataloader = data_loader.get_dataloader()
 
@@ -149,7 +153,7 @@ if validation:
     data_loader_val = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=val_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=val_save_path, stat_save_path = model_save_path,
-    crd=spatial_extent_val, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, device=device)
+    crd=spatial_extent_val, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, device=device)
 
     dataloader_val = data_loader_val.get_dataloader()
 
@@ -162,6 +166,9 @@ else:
 
 
 nx = len(input_x)+ len(input_attrs)
+
+if autoregression:
+    nx += 3
 
 model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 # model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
@@ -244,11 +251,11 @@ for epoch in range(num_epochs+1):
                     batch_y = batch_y.to(device)
 
                     transformed_x = model(batch_x, batch_input_norm, time_labels_val)
-                    val_loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
+                    # val_loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
 
                     val_dist_loss = w1 * distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)
                     val_rainy_loss = w2 * rainy_day_loss(transformed_x.T, batch_y.T)
-                    val_loss = val_dist_loss + val_rainy_loss + val_loss_l1
+                    val_loss = val_dist_loss + val_rainy_loss
 
                     val_epoch_loss += val_loss.item()
                     # Store predictions

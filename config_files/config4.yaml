@@ -1,10 +1,10 @@
 sweep:
-  clim: ['access_cm2']
+  clim: ['miroc6']
   model_type: ['MLP']
-  degree: [3]
-  layers: [6]
+  degree: [2]
+  layers: [4]
   emph_quantile: [0.5]
-  time_scale: ['daily']
+  time_scale: ['month']
   input_attrs: ['elev;slope;aspect;landcover']
 
 
@@ -28,6 +28,7 @@ fixed:
   epochs: 400
   testepoch: 50
   batch_size: 100
+  autoregression: True # if True, will use autoregressive features in the data loader
 
   ## run conditions
   trend_analysis: True
