@@ -50,16 +50,22 @@ parser.add_argument('--scenario', type=str, default='ssp5_8_5')
 parser.add_argument('--trend_start', type=int, default=2075)
 parser.add_argument('--trend_end', type=int, default=2099)
 parser.add_argument('--autoregression', action='store_true')
+parser.add_argument('--lag', type=int, default=3) 
+parser.add_argument('--hidden_size', type=int, default=64)
+parser.add_argument('--chunk', action='store_true')
+parser.add_argument('--chunk_size', type=int, default=365)
+parser.add_argument('--stride', type=int, default=60)
 
 
 args = parser.parse_args()
+cuda_device = args.cuda_device
 
 # Generate unique run ID
 args_dict = vars(args)
+del args_dict['cuda_device']  # Remove cuda_device from args_dict to avoid it in run_id
 run_id = generate_run_id(args_dict)
 
 torch.manual_seed(42)
-cuda_device = args.cuda_device
 
 logging = args.logging
 
@@ -84,8 +90,12 @@ model_type = args.model_type
 batch_size = args.batch_size
 degree = args.degree
 layers = args.layers
+hidden_size = args.hidden_size
 time_scale = args.time_scale
 emph_quantile = args.emph_quantile
+chunk = args.chunk
+chunk_size = args.chunk_size
+stride = args.stride
 
 
 ## For Spatial Test
@@ -96,6 +106,7 @@ shapefile_filter_path =  None if not spatial_test  else args.shapefile_filter_pa
 
 
 autoregression = args.autoregression
+lag = args.lag
 
 
 ## INPUTS
@@ -145,7 +156,8 @@ with open(os.path.join(save_path, "train_config.yaml"), "w") as f:
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=train_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
-    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, device=device)
+    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
+    chunk=chunk, chunk_size=chunk_size, stride=stride, device=device)
 
 dataloader = data_loader.get_dataloader()
 
@@ -153,7 +165,8 @@ if validation:
     data_loader_val = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=val_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=val_save_path, stat_save_path = model_save_path,
-    crd=spatial_extent_val, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, device=device)
+    crd=spatial_extent_val, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
+    chunk=False, chunk_size=chunk_size, stride=stride, device=device)
 
     dataloader_val = data_loader_val.get_dataloader()
 
@@ -168,7 +181,7 @@ else:
 nx = len(input_x)+ len(input_attrs)
 
 if autoregression:
-    nx += 3
+    nx += lag
 
 model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 # model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)

@@ -13,7 +13,8 @@ import numpy as np
 
 class DataLoaderWrapper:
     def __init__(self, clim, scenario, ref, period, ref_path, cmip6_dir, shapefile_filter_path,
-                 input_x, input_attrs, ref_var, save_path, stat_save_path, crd='all', batch_size=100, train=True, autoregression = False, device=0):
+                 input_x, input_attrs, ref_var, save_path, stat_save_path, crd='all', batch_size=100, train=True, autoregression = False, lag=3, 
+                 chunk=False, chunk_size = 365, stride = 90, device=0):
         """
         Customizable climate data loader with future projection support.
         """
@@ -32,11 +33,15 @@ class DataLoaderWrapper:
         self.shapefile_filter_path = shapefile_filter_path
         self.device = device
 
+        self.chunk = chunk
+        self.chunk_size = chunk_size
+        self.stride = stride
         
         self.save_path = save_path
         self.stat_save_path = stat_save_path
 
         self.autoregression = autoregression
+        self.lag = lag
 
         self.valid_coords = self.get_valid_coords()
 
@@ -221,23 +226,31 @@ class DataLoaderWrapper:
         x = self.x_data.squeeze().T
         y = self.y_data.squeeze().T
 
+        norm_input = self.input_norm_tensor
+
         if self.autoregression:
-            self.input_norm_tensor = self.build_autoregressive_dataset(norm_input=self.input_norm_tensor, k=3)
+            self.input_norm_tensor = self.build_autoregressive_dataset(norm_input=norm_input, k=self.lag)
             # x = torch.tensor(x).to(self.device)
             # y = torch.tensor(y).to(self.device)
+        if self.chunk:
+            norm_input, y, x = self.chunk_sequence(norm_input, x, y, chunk_size=self.chunk_size, stride=self.stride)
 
-        dataset = TensorDataset(self.input_norm_tensor, x, y)
+        dataset = TensorDataset(norm_input, x, y)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
     
     
     def get_dataloader_future(self):
         """Returns a PyTorch DataLoader."""
         x = self.x_data.squeeze().T
+        norm_input = self.input_norm_tensor
 
         if self.autoregression:
-            self.input_norm_tensor = self.build_autoregressive_dataset(norm_input=self.input_norm_tensor, k=3)
+            self.input_norm_tensor = self.build_autoregressive_dataset(norm_input=norm_input, k=self.lag)
 
-        dataset = TensorDataset(self.input_norm_tensor, x)
+        if self.chunk:
+            norm_input, y, x = self.chunk_sequence(norm_input, x, None, chunk_size=self.chunk_size, stride=self.stride)
+
+        dataset = TensorDataset(norm_input, x)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
     
     def build_autoregressive_dataset(self, norm_input, k, tv_idx=0, static_idxs=[1, 2, 3, 4]):
@@ -274,4 +287,21 @@ class DataLoaderWrapper:
         X = torch.cat([prcp_stack, static_feat], dim=-1)  # (coords, time, input_dim)
 
         return X
-            
+    
+    def chunk_sequence(self, data, x=None, y=None, chunk_size=365, stride=90):
+        coords, time, features = data.shape
+        chunks, x_chunks, target_chunks = [], [], []
+
+        for start in range(0, time - chunk_size + 1, stride):
+            end = start + chunk_size
+            chunks.append(data[:, start:end, :])  # (coords, chunk_size, features)
+            if y is not None:
+                target_chunks.append(y[:, start:end])  # (coords, chunk_size)
+            if x is not None:
+                x_chunks.append(x[:, start:end])  # (coords, chunk_size)
+
+        data_chunks = torch.cat(chunks, dim=0)  # (coords * n_chunks, chunk_len, features)
+        target_chunks = torch.cat(target_chunks, dim=0) if y is not None else None
+        x_chunks = torch.cat(x_chunks, dim=0) if x is not None else None
+
+        return data_chunks, target_chunks, x_chunks

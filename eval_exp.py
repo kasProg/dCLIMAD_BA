@@ -31,9 +31,9 @@ else:
         device = torch.device(f'cuda:{cuda_device}')
     else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
-    
-run_id = '0cc8e8e0'
-testepoch = 300
+
+run_id = '1bebe9ff'  # Example run ID, replace with actual run ID
+testepoch = 100
 
 run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs/')
 # Load the config.yaml file
@@ -81,6 +81,7 @@ emph_quantile = config['emph_quantile']
 batch_size = config['batch_size']
 epochs = config['epochs']
 autoregression = config['autoregression']
+lag = config['lag']
 
 ## loss params
 w1 = 1
@@ -118,7 +119,7 @@ os.makedirs(test_save_path, exist_ok=True)
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=test_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
-    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression, device=device)
+    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression, lag=lag, device=device)
 
 dataloader = data_loader.get_dataloader()
 
@@ -128,7 +129,7 @@ if trend_analysis:
     data_loader_future = DataLoaderWrapper( 
     clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var='', save_path=future_save_path, stat_save_path = model_save_path, 
-    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression,device=device)
+    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression,lag=lag,device=device)
 
     dataloader_future = data_loader_future.get_dataloader_future()
 
@@ -137,7 +138,7 @@ _, time_x = data_loader.load_dynamic_inputs()
 nx = len(input_x)+ len(input_attrs)
 
 if autoregression:
-    nx += 3
+    nx += lag
 
 if time_scale == 'daily':
     time_labels = time_labels_future = 'daily'
