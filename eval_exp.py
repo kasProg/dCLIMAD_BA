@@ -32,10 +32,10 @@ else:
     else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
-run_id = '1d094a85'  # Example run ID, replace with actual run ID
-testepoch = 50
+run_id = 'd987750b'  # Example run ID, replace with actual run ID
+testepoch = 290
 
-run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs/')
+run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs_revised/')
 # Load the config.yaml file
 with open(os.path.join(run_path, 'train_config.yaml'), 'r') as f:
     config = yaml.safe_load(f)
@@ -82,10 +82,10 @@ batch_size = config['batch_size']
 epochs = config['epochs']
 autoregression = config['autoregression']
 lag = config['lag']
+wet_dry_flag = config['wet_dry_flag']
+# pca_mode = config['pca_mode']
 
-## loss params
-w1 = 1
-w2 = 0
+
 # ny = 4 # number of params
 
 #####----- For spatial Tests--------#####
@@ -105,7 +105,7 @@ shapefile_filter_path =  None if not spatial_test  else config['shapefile_filter
 
 if logging:
     exp = f'conus/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
-    writer = SummaryWriter(f"runs/{exp}")
+    writer = SummaryWriter(f"runs_revised/{exp}")
 
 
 save_path = run_path
@@ -119,7 +119,8 @@ os.makedirs(test_save_path, exist_ok=True)
 data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=test_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
-    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression, lag=lag, device=device)
+    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression, 
+    lag=lag, wet_dry_flag=wet_dry_flag, device=device)
 
 dataloader = data_loader.get_dataloader()
 
@@ -129,7 +130,8 @@ if trend_analysis:
     data_loader_future = DataLoaderWrapper( 
     clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var='', save_path=future_save_path, stat_save_path = model_save_path, 
-    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression,lag=lag,device=device)
+    crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression,lag=lag,
+    wet_dry_flag=wet_dry_flag, device=device)
 
     dataloader_future = data_loader_future.get_dataloader_future()
 
@@ -140,13 +142,16 @@ nx = len(input_x)+ len(input_attrs)
 if autoregression:
     nx += lag
 
+if wet_dry_flag:
+    nx += 1  
+
 if time_scale == 'daily':
     time_labels = time_labels_future = 'daily'
 else:
     time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
     time_labels_future = helper.extract_time_labels(data_loader_future.load_dynamic_inputs()[1], label_type=time_scale) if trend_analysis else None
 
-model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
+model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=False).to(device)
 # model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
     
