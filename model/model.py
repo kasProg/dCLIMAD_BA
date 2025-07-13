@@ -11,15 +11,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pandas as pd
 import numpy as np
+import torch.fft as fft
 
 class QuantileMappingModel(nn.Module):
-    def __init__(self, nx=1, hidden_dim=64, num_layers=2, modelType='ANN', degree=2):
+    def __init__(self, nx=1, hidden_dim=64, num_layers=2, modelType='ANN', degree=2, pca_mode=False):
         super(QuantileMappingModel, self).__init__()
         self.degree = degree
 
         # Automatically calculate ny: degree scales + 1 shift + 1 threshold
         ny = degree + 1 
         self.model_type = modelType 
+        self.pca_mode = pca_mode
 
         if modelType == 'MLP':
             self.transform_generator = self.build_transform_generator(nx, hidden_dim, ny, num_layers)
@@ -68,6 +70,9 @@ class QuantileMappingModel(nn.Module):
             label_avg = torch.einsum('stp,tm->smp', params, weights)  # (sites, scale, params)
             params = torch.einsum('tm,smp->stp', weights, label_avg)  # shape: (sites, time, params)
 
+        if self.pca_mode:
+            x, x_residual = self.extract_high_pca_modes(x)
+
         scales = [torch.exp(params[:, :, i]) for i in range(self.degree)]  # Ensure positive scaling
         shift = params[:, :, self.degree]
         # threshold = torch.sigmoid(params[:, :, self.degree + 1])  # Between 0 and 1
@@ -80,7 +85,78 @@ class QuantileMappingModel(nn.Module):
         # transformed_x = torch.where(zero_mask, torch.zeros_like(transformed_x), transformed_x)
         transformed_x = torch.relu(transformed_x)
 
+        if self.pca_mode:
+            transformed_x = transformed_x + x_residual
+
         return transformed_x
+    
+    def extract_high_pca_modes(self, X: torch.Tensor, min_variance: float = 0.90) -> tuple[torch.Tensor, torch.Tensor]:
+        # Step 1: Center the data (remove spatial mean)
+        X_mean = X.mean(dim=1, keepdim=True)
+        X_centered = X - X_mean  # shape: (coords, time)
+
+        # Step 2: Perform SVD
+        # X = U @ S @ Vh
+        U, S, Vh = torch.linalg.svd(X_centered, full_matrices=False)  # shapes: (coords, time), (min), (time, time)
+
+        # Step 3: Compute cumulative variance explained
+        S_squared = S ** 2
+        explained_variance = torch.cumsum(S_squared, dim=0) / S_squared.sum()
+        
+        # Step 4: Choose minimum k such that at least min_variance is explained
+        k = int((explained_variance >= min_variance).nonzero(as_tuple=True)[0][0].item()) + 1
+
+        # Step 3: Keep top-k modes
+        U_k = U[:, :k]           # (coords, k)
+        S_k = S[:k]
+        Vh_k = Vh[:k, :]         # (k, time)
+
+        X_top = U_k @ torch.diag(S_k) @ Vh_k  # shape: (coords, time)
+        X_top  = X_mean + X_top
+
+        X_residual = X - X_top
+
+        return X_top, X_residual
+    
+
+    def extract_high_fourier_mode(self, series: torch.Tensor, high_mode_cutoff: int = 100) -> torch.Tensor:
+        """
+        Extracts the high-frequency Fourier modes from a time series.
+
+        Args:
+            series (torch.Tensor): Input tensor of shape (batch, time)
+            high_mode_cutoff (int): Frequencies above this are considered "high".
+
+        Returns:
+            torch.Tensor: Tensor containing only the high-frequency components.
+        """
+        freq_series = fft.fft(series, dim=-1)
+        high_only_freq = torch.zeros_like(freq_series)
+        high_only_freq[:, high_mode_cutoff:] = freq_series[:, high_mode_cutoff:]
+        # Inverse FFT to real domain of just the high modes
+        # high_only_series = fft.ifft(high_only_freq, dim=-1).real
+        return high_only_freq
+    
+    def reassemble_high_fourier_modes(self, transformed_high: torch.Tensor, original_series: torch.Tensor, high_mode_cutoff: int = 100) -> torch.Tensor:
+        """
+        Reassembles the time series by combining the original low-frequency modes with the transformed high-frequency modes.
+
+        Args:
+            transformed_high (torch.Tensor): Transformed high-frequency components.
+            original_series (torch.Tensor): Original time series to retain low-frequency components.
+            high_mode_cutoff (int): Frequencies above this are considered "high".
+
+        Returns:
+            torch.Tensor: Reconstructed time series with transformed high frequencies.
+        """
+        freq_series = fft.fft(original_series, dim=-1)
+        freq_series[:, high_mode_cutoff:] = transformed_high[:, high_mode_cutoff:]
+        # Inverse FFT to get back to the time domain
+        reconstructed_series = fft.ifft(freq_series, dim=-1).real
+        return reconstructed_series
+    
+
+
 
 
 class QuantileMappingModel1(nn.Module):
@@ -150,3 +226,54 @@ class QuantileMappingModel1(nn.Module):
         )
         weighted_abs = torch.abs(self.latest_poly_weights) * degree_weights
         return lambda_l1 * torch.sum(weighted_abs)
+
+
+
+
+
+
+
+def selective_mode_polynomial_transform(
+    series: torch.Tensor,
+    poly_transform_fn,
+    low_mode_cutoff: int = 10,
+    high_mode_cutoff: int = 100
+):
+    """
+    Applies a selective transformation to different Fourier modes of a time series using a polynomial transformation.
+    
+    Args:
+        series (torch.Tensor): Input tensor of shape (batch, time)
+        poly_transform_fn (callable): A function that takes a real-valued series and returns a transformed series.
+        low_mode_cutoff (int): Frequencies below this are considered "low" and left untransformed.
+        high_mode_cutoff (int): Frequencies above this are considered "high" and transformed.
+    
+    Returns:
+        torch.Tensor: Reconstructed series after transforming selected modes.
+    """
+    # FFT (complex)
+    freq_series = fft.fft(series, dim=-1)
+
+    # Clone for modification
+    transformed_freq = freq_series.clone()
+
+    # High-frequency modes
+    high_only_freq = torch.zeros_like(freq_series)
+    high_only_freq[:, high_mode_cutoff:] = freq_series[:, high_mode_cutoff:]
+
+    # Inverse FFT to real domain of just the high modes
+    high_only_series = fft.ifft(high_only_freq, dim=-1).real
+
+    # Apply polynomial transformation in time domain
+    transformed_high = poly_transform_fn(high_only_series)
+
+    # FFT of transformed high part
+    transformed_high_freq = fft.fft(transformed_high, dim=-1)
+
+    # Replace high-frequency components
+    transformed_freq[:, high_mode_cutoff:] = transformed_high_freq[:, high_mode_cutoff:]
+
+    # Inverse FFT to return to time domain
+    reconstructed = fft.ifft(transformed_freq, dim=-1).real
+
+    return reconstructed

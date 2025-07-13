@@ -131,3 +131,50 @@ def wasserstein_distance_loss(predicted, target, dim=1):
     
     # Average over the batch
     return wasserstein_loss.mean()
+
+
+
+def autocorrelation_loss(pred, target, lags=[1, 2, 3, 5]):
+    """
+    Computes MSE between autocorrelation of predicted and target series for multiple lags.
+
+    Args:
+        pred: (batch, time) or (time,) — predicted time series
+        target: same shape — observed time series
+        lags: list of int — lags at which to compute autocorrelation
+
+    Returns:
+        scalar loss: mean squared error over autocorrelations at given lags
+    """
+    def compute_acf(x, lag):
+        # x: (batch, time) or (time,)
+        x = x - x.mean(dim=-1, keepdim=True)  # mean-center
+        n = x.size(-1)
+        if x.dim() == 1:
+            return F.cosine_similarity(x[:-lag], x[lag:], dim=0)
+        else:
+            return F.cosine_similarity(x[:, :-lag], x[:, lag:], dim=1)
+
+    loss = 0.0
+    for lag in lags:
+        acf_pred = compute_acf(pred, lag)
+        acf_target = compute_acf(target, lag)
+        loss += F.mse_loss(acf_pred, acf_target)
+
+    return loss / len(lags)
+
+def fourier_spectrum_loss(pred, target):
+    seq_len = min(pred.size(1), target.size(1))
+    pred = pred[:, :seq_len]
+    target = target[:, :seq_len]
+
+    pred_fft = torch.fft.fft(pred, dim=1)
+    target_fft = torch.fft.fft(target, dim=1)
+
+    pred_power = torch.abs(pred_fft) ** 2
+    target_power = torch.abs(target_fft) ** 2
+
+    pred_power = pred_power / (pred_power.sum(dim=1, keepdim=True) + 1e-8)
+    target_power = target_power / (target_power.sum(dim=1, keepdim=True) + 1e-8)
+
+    return F.mse_loss(pred_power, target_power)

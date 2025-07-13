@@ -3,7 +3,7 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import os
 from model.model import QuantileMappingModel, QuantileMappingModel1
-from model.loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
+from model.loss import rainy_day_loss, distributional_loss_interpolated, autocorrelation_loss, fourier_spectrum_loss
 from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
 from data.helper import generate_run_id
@@ -55,6 +55,9 @@ parser.add_argument('--hidden_size', type=int, default=64)
 parser.add_argument('--chunk', action='store_true')
 parser.add_argument('--chunk_size', type=int, default=365)
 parser.add_argument('--stride', type=int, default=60)
+parser.add_argument('--loss', nargs='+', type=str, default=None)
+parser.add_argument('--wet_dry_flag', action='store_true')
+parser.add_argument('--pca_mode', action='store_true')
 
 
 args = parser.parse_args()
@@ -96,6 +99,9 @@ emph_quantile = args.emph_quantile
 chunk = args.chunk
 chunk_size = args.chunk_size
 stride = args.stride
+loss_func = args.loss
+wet_dry_flag = args.wet_dry_flag
+pca_mode = args.pca_mode
 
 
 ## For Spatial Test
@@ -120,8 +126,8 @@ input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
 
 ## loss params
-w1 = 1
-w2 = 0
+w1 = 0.99
+w2 = 0.01
 # ny = 4 # number of params
 
 
@@ -136,11 +142,11 @@ else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
 if logging:
-    exp = f'conus/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
-    writer = SummaryWriter(f"runs/{exp}")
+    exp = f'conus_pca/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
+    writer = SummaryWriter(f"runs_revised/{exp}")
 
 
-save_path = f'jobs/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
+save_path = f'jobs_revised_pca/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if validation:
     val_save_path =  save_path + f'{val_period[0]}_{val_period[1]}/'
@@ -157,7 +163,7 @@ data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=train_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
     crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
-    chunk=chunk, chunk_size=chunk_size, stride=stride, device=device)
+    chunk=chunk, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, device=device)
 
 dataloader = data_loader.get_dataloader()
 
@@ -166,7 +172,7 @@ if validation:
     clim=clim, scenario='historical', ref=ref, period=val_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=val_save_path, stat_save_path = model_save_path,
     crd=spatial_extent_val, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
-    chunk=False, chunk_size=chunk_size, stride=stride, device=device)
+    chunk=False, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, device=device)
 
     dataloader_val = data_loader_val.get_dataloader()
 
@@ -182,12 +188,16 @@ nx = len(input_x)+ len(input_attrs)
 
 if autoregression:
     nx += lag
+if wet_dry_flag:
+    nx += 1  # Adding wet/dry flag as an additional feature
 
-model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
+model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode).to(device)
 # model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
     
 optimizer = optim.Adam(model.parameters(), lr=0.01)
+# optimizer = optim.Adam(model.parameters(), lr=0.001)
+
 balance_loss = 0  # Adjust this weight to balance between distributional and rainy day losses
 
 # Training loop
@@ -213,12 +223,29 @@ for epoch in range(num_epochs+1):
 
         # Compute the loss
         # kl_loss = 0.699*kl_divergence_loss(transformed_x.T, batch_y.T, num_bins=1000)
+        if 'quantile' in loss_func:
+            dist_loss = w1 * distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)
+            loss = dist_loss
+            loss1 += dist_loss.item()
 
-        dist_loss = w1*distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000,  emph_quantile=emph_quantile)
-        rainy_loss = w2*rainy_day_loss(transformed_x.T, batch_y.T)
+        if 'autocorrelation' in loss_func:
+            autocorr_loss = w2 * autocorrelation_loss(transformed_x, batch_y)
+            loss+= autocorr_loss 
+            loss2 += autocorr_loss.item()
+        
+        if 'fourier' in loss_func:
+            fourier_loss = w2 * fourier_spectrum_loss(transformed_x, batch_y)
+            loss+= fourier_loss
+            
+        if 'rainy_day' in loss_func:
+            rainy_loss = w2 * rainy_day_loss(transformed_x.T, batch_y.T)
+            loss+= rainy_loss
+            loss2 += rainy_loss.item()
+
+
         # ws_dist = 0.5*wasserstein_distance_loss(transformed_x.T, batch_y.T)
         # trendloss = trend_loss(transformed_x.T, batch_x.T, device)
-        loss = dist_loss + rainy_loss
+        # loss = dist_loss + autocorr_loss
         # loss = dist_loss + kl_loss + ws_dist + balance_loss * rainy_loss
 
         # loss = dist_loss + balance_loss * rainy_loss
@@ -230,8 +257,6 @@ for epoch in range(num_epochs+1):
         optimizer.step()
 
         epoch_loss += loss.item()
-        loss1 += dist_loss.item()
-        loss2 += rainy_loss.item()
         # loss3 += trendloss.item()
 
 
@@ -265,10 +290,21 @@ for epoch in range(num_epochs+1):
 
                     transformed_x = model(batch_x, batch_input_norm, time_labels_val)
                     # val_loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
+                    if 'quantile' in loss_func:
+                        val_dist_loss = w1 * distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)
+                        val_loss = val_dist_loss
 
-                    val_dist_loss = w1 * distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)
-                    val_rainy_loss = w2 * rainy_day_loss(transformed_x.T, batch_y.T)
-                    val_loss = val_dist_loss + val_rainy_loss
+                    if 'autocorrelation' in loss_func:
+                        val_autocorr_loss = w2 * autocorrelation_loss(transformed_x, batch_y)
+                        val_loss += val_autocorr_loss
+
+                    if 'fourier' in loss_func:
+                        val_fourier_loss = w2 * fourier_spectrum_loss(transformed_x, batch_y)
+                        val_loss += val_fourier_loss
+
+                    if 'rainy_day' in loss_func:
+                        val_rainy_day_loss = w2 * rainy_day_loss(transformed_x.T, batch_y.T)
+                        val_loss += val_rainy_day_loss
 
                     val_epoch_loss += val_loss.item()
                     # Store predictions

@@ -32,8 +32,8 @@ else:
     else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
-run_id = '1bebe9ff'  # Example run ID, replace with actual run ID
-testepoch = 100
+run_id = '1d094a85'  # Example run ID, replace with actual run ID
+testepoch = 50
 
 run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs/')
 # Load the config.yaml file

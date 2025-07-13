@@ -14,7 +14,7 @@ import numpy as np
 class DataLoaderWrapper:
     def __init__(self, clim, scenario, ref, period, ref_path, cmip6_dir, shapefile_filter_path,
                  input_x, input_attrs, ref_var, save_path, stat_save_path, crd='all', batch_size=100, train=True, autoregression = False, lag=3, 
-                 chunk=False, chunk_size = 365, stride = 90, device=0):
+                 chunk=False, chunk_size = 365, stride = 90, wet_dry_flag=False, device=0):
         """
         Customizable climate data loader with future projection support.
         """
@@ -36,6 +36,7 @@ class DataLoaderWrapper:
         self.chunk = chunk
         self.chunk_size = chunk_size
         self.stride = stride
+        self.wet_dry_flag = wet_dry_flag
         
         self.save_path = save_path
         self.stat_save_path = stat_save_path
@@ -111,6 +112,10 @@ class DataLoaderWrapper:
                 #managing units
                 x_var = unit_identifier.convert(x_var, var, units[matched_var]) 
 
+                if matched_var == 'pr':
+                    # Setting trace precipitation values to 0.0
+                    x_var[x_var<0.254] = 0.0  
+
                 x_var = torch.tensor(x_var).to(self.device)
                 x_data.append(x_var.unsqueeze(-1))
                     
@@ -141,6 +146,10 @@ class DataLoaderWrapper:
             y_data.append(y.unsqueeze(-1))
                 
             y_data = torch.cat(y_data, dim=-1)
+
+            if 'prec' in self.ref_var:
+                # Setting trace precipitation values to 0.0
+                y_data[y_data<0.254] = 0.0
 
             torch.save(y_data, f'{self.save_path}/y.pt')
 
@@ -229,11 +238,13 @@ class DataLoaderWrapper:
         norm_input = self.input_norm_tensor
 
         if self.autoregression:
-            self.input_norm_tensor = self.build_autoregressive_dataset(norm_input=norm_input, k=self.lag)
-            # x = torch.tensor(x).to(self.device)
-            # y = torch.tensor(y).to(self.device)
+            norm_input = self.build_autoregressive_dataset(norm_input=norm_input, k=self.lag)
+
         if self.chunk:
             norm_input, y, x = self.chunk_sequence(norm_input, x, y, chunk_size=self.chunk_size, stride=self.stride)
+
+        if self.wet_dry_flag:
+            norm_input = self.add_wet_dry_flag(norm_input, x)
 
         dataset = TensorDataset(norm_input, x, y)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
@@ -245,10 +256,13 @@ class DataLoaderWrapper:
         norm_input = self.input_norm_tensor
 
         if self.autoregression:
-            self.input_norm_tensor = self.build_autoregressive_dataset(norm_input=norm_input, k=self.lag)
+            norm_input = self.build_autoregressive_dataset(norm_input=norm_input, k=self.lag)
 
         if self.chunk:
             norm_input, y, x = self.chunk_sequence(norm_input, x, None, chunk_size=self.chunk_size, stride=self.stride)
+
+        if self.wet_dry_flag:
+            norm_input = self.add_wet_dry_flag(norm_input, x)
 
         dataset = TensorDataset(norm_input, x)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
@@ -305,3 +319,18 @@ class DataLoaderWrapper:
         x_chunks = torch.cat(x_chunks, dim=0) if x is not None else None
 
         return data_chunks, target_chunks, x_chunks
+    
+    def add_wet_dry_flag(self, input_tensor, x, threshold=1.0):
+        """
+        Adds a binary wet/dry flag to the feature dimension.
+
+        Args:
+            input_tensor: (coords, time, features)
+            prcp_feature_idx: index of the precipitation feature
+            threshold: precipitation threshold for wet/dry
+
+        Returns:
+            new_tensor: (coords, time, features + 1)
+        """
+        wet_dry_flag = (x > threshold).float().unsqueeze(-1)
+        return torch.cat([input_tensor, wet_dry_flag], dim=-1)
