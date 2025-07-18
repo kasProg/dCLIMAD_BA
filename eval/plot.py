@@ -119,7 +119,7 @@ def plot_spatial_bias(valid_coords, bias_data_dict, threshold_types, label,
 
     num_rows = len(threshold_types)
     num_methods = len(next(iter(bias_data_dict.values())))  # Length of (raw, method1, method2, ...)
-    method_labels = ["Raw"] + (method_names if method_names else [f"Method {i+1}" for i in range(num_methods - 1)])
+    method_labels = (method_names if method_names else [f"Method {i+1}" for i in range(num_methods - 1)])
 
     fig, axes = plt.subplots(num_rows, num_methods, figsize=(6 * num_methods, 3 * num_rows), sharex=True, sharey=True)
 

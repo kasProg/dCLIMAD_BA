@@ -20,11 +20,13 @@ parser = argparse.ArgumentParser(description='Quantile Mapping Model Configurati
 
 parser.add_argument('--cuda_device', type=str, default='0')
 parser.add_argument('--logging', action='store_true')
+parser.add_argument('--logging_path', type=str)
 parser.add_argument('--clim', type=str, default='miroc6')
 parser.add_argument('--ref', type=str, default='livneh')
 parser.add_argument('--cmip_dir', type=str)
 parser.add_argument('--ref_dir', type=str)
 parser.add_argument('--ref_var', type=str)
+parser.add_argument('--save_path', type=str)
 parser.add_argument('--input_attrs', type=str, help="Semicolon-separated list of input attributes")
 parser.add_argument('--train', action='store_true')
 parser.add_argument('--validation', action='store_true')
@@ -58,6 +60,7 @@ parser.add_argument('--stride', type=int, default=60)
 parser.add_argument('--loss', nargs='+', type=str, default=None)
 parser.add_argument('--wet_dry_flag', action='store_true')
 parser.add_argument('--pca_mode', action='store_true')
+parser.add_argument('--learning_rate', type=float, default=0.01)
 
 
 args = parser.parse_args()
@@ -102,6 +105,8 @@ stride = args.stride
 loss_func = args.loss
 wet_dry_flag = args.wet_dry_flag
 pca_mode = args.pca_mode
+learning_rate = args.learning_rate
+
 
 
 ## For Spatial Test
@@ -114,9 +119,12 @@ shapefile_filter_path =  None if not spatial_test  else args.shapefile_filter_pa
 autoregression = args.autoregression
 lag = args.lag
 
+save_path_address = args.save_path
+logging_path_address = args.logging_path
 
 ## INPUTS
 input_attrs = args.input_attrs.split(';')
+
 
 
 ####------------FIXED INPUTS------------####
@@ -142,11 +150,11 @@ else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
 if logging:
-    exp = f'conus_pca/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
-    writer = SummaryWriter(f"runs_revised/{exp}")
+    exp = f'{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
+    writer = SummaryWriter(f"{logging_path_address}/{exp}")
 
 
-save_path = f'jobs_revised_pca/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
+save_path = f'{save_path_address}/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if validation:
     val_save_path =  save_path + f'{val_period[0]}_{val_period[1]}/'
@@ -195,7 +203,7 @@ model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=lay
 # model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
     
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 # optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 balance_loss = 0  # Adjust this weight to balance between distributional and rainy day losses

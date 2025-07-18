@@ -32,16 +32,16 @@ else:
     else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
-run_id = 'd987750b'  # Example run ID, replace with actual run ID
-testepoch = 290
+run_id = '74438819'  # Example run ID, replace with actual run ID
+testepoch = 390
 
-run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs_revised/')
+run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs_revised_pca/')
 # Load the config.yaml file
 with open(os.path.join(run_path, 'train_config.yaml'), 'r') as f:
     config = yaml.safe_load(f)
 
 
-logging = False
+logging = True
 cmip6_dir = config['cmip_dir']
 ref_path = config['ref_dir']
 
@@ -52,6 +52,7 @@ train = False
 input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
 clim_var = 'pr'
 ref_var = config['ref_var']
+
 input_attrs = config['input_attrs'].split(';')
 # input_attrs = {}
 
@@ -83,7 +84,7 @@ epochs = config['epochs']
 autoregression = config['autoregression']
 lag = config['lag']
 wet_dry_flag = config['wet_dry_flag']
-# pca_mode = config['pca_mode']
+pca_mode = config['pca_mode']
 
 
 # ny = 4 # number of params
@@ -104,8 +105,8 @@ shapefile_filter_path =  None if not spatial_test  else config['shapefile_filter
 ###-------- Developer section here -----------###
 
 if logging:
-    exp = f'conus/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
-    writer = SummaryWriter(f"runs_revised/{exp}")
+    exp = f'conus_gridmet_new/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
+    writer = SummaryWriter(f"runs_LSTM/{exp}")
 
 
 save_path = run_path
@@ -151,7 +152,7 @@ else:
     time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
     time_labels_future = helper.extract_time_labels(data_loader_future.load_dynamic_inputs()[1], label_type=time_scale) if trend_analysis else None
 
-model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=False).to(device)
+model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode).to(device)
 # model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
     

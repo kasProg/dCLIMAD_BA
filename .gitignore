@@ -35,3 +35,7 @@ runs_fault
 jobs_revised
 jobs_revised_pca
 runs_revised
+runs_LSTM
+plots
+analysis_ensemble1.ipynb
+temp*
