@@ -38,4 +38,7 @@ runs_revised
 runs_LSTM
 plots
 analysis_ensemble1.ipynb
+analysis_ensemble2.ipynb
 temp*
+jobs_CNN
+outputs

@@ -23,15 +23,30 @@ class QuantileMappingModel(nn.Module):
         self.model_type = modelType 
         self.pca_mode = pca_mode
 
-        if modelType == 'MLP':
+        # if modelType == 'MLP':
+        if num_layers==0:
+            self.transform_generator = self.build_transform_generator(nx, hidden_dim, ny, 4)
+        else:
             self.transform_generator = self.build_transform_generator(nx, hidden_dim, ny, num_layers)
-        elif modelType == 'FNO2d':
-            self.transform_generator = FNO2d(16, 16, hidden_dim)
-        elif modelType == 'FNO1d':
-            self.transform_generator = FNO1d(modes=16, width=hidden_dim, input_dim=nx, output_dim=ny)
-        elif modelType == 'LSTM':
+        # elif modelType == 'FNO2d':
+        #     self.transform_generator = FNO2d(16, 16, hidden_dim)
+        # elif modelType == 'FNO1d':
+        #     self.transform_generator = FNO1d(modes=16, width=hidden_dim, input_dim=nx, output_dim=ny)
+        # elif modelType == 'LSTM':
+
+
+        if num_layers == 0:
+            self.lstm = nn.LSTM(input_size=nx, hidden_size=hidden_dim, num_layers=3, batch_first=True)
+        else:
             self.lstm = nn.LSTM(input_size=nx, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True)
-            self.fc = nn.Linear(hidden_dim, ny) 
+            
+        self.fc = nn.Linear(hidden_dim, ny) 
+        # elif modelType == 'CNN1d':
+        self.cnn = TemporalCNN(
+            nx=nx, ny=ny, hidden=hidden_dim, num_blocks=num_layers,
+            kernel_size=3, base_dilation=2,
+            dropout=0.1, causal=False
+        )
 
     def build_transform_generator(self, nx, hidden_dim, ny, num_layers):
         layers = []
@@ -58,37 +73,55 @@ class QuantileMappingModel(nn.Module):
             # LSTM forward pass
             lstm_out, _ = self.lstm(input_tensor)  # Output shape: [batch_size, seq_len, hidden_dim]
             # Generate transformation parameters
-            params = self.fc(lstm_out)  # Output shape: [batch_size, seq_len, ny]
+            params = [self.fc(lstm_out)]  # Output shape: [batch_size, seq_len, ny]
+        elif self.model_type == "CNN1d":
+            params = [self.cnn(input_tensor)]
+        elif self.model_type == 'MLP_LSTM':
+            params0 = self.transform_generator(input_tensor)
+            lstm_out, _ = self.lstm(input_tensor)
+            params1 = self.fc(lstm_out)
+            params = [params0, params1]
         else:
-            params = self.transform_generator(input_tensor)
+            params = [self.transform_generator(input_tensor)]
 
-        # Extract scale and shift parameters dynamically based on degree
-        if str(time_scale) != 'daily':
-            label_dummies = pd.get_dummies(time_scale)
-            weights_np = label_dummies.div(label_dummies.sum(axis=0), axis=1).values.astype(np.float32)
-            weights = torch.tensor(weights_np, device=params.device)  # shape (time, scale)
-            label_avg = torch.einsum('stp,tm->smp', params, weights)  # (sites, scale, params)
-            params = torch.einsum('tm,smp->stp', weights, label_avg)  # shape: (sites, time, params)
+        # Store all transformed outputs
+        transformed_outputs = []
 
-        if self.pca_mode:
-            x, x_residual = self.extract_high_pca_modes(x)
+        for param in params:
+            # Extract scale and shift parameters dynamically based on degree
+            if str(time_scale) != 'daily':
+                label_dummies = pd.get_dummies(time_scale)
+                weights_np = label_dummies.div(label_dummies.sum(axis=0), axis=1).values.astype(np.float32)
+                weights = torch.tensor(weights_np, device=param.device)  # shape (time, scale)
+                label_avg = torch.einsum('stp,tm->smp', param, weights)  # (sites, scale, params)
+                param = torch.einsum('tm,smp->stp', weights, label_avg)  # shape: (sites, time, params)
 
-        scales = [torch.exp(params[:, :, i]) for i in range(self.degree)]  # Ensure positive scaling
-        shift = params[:, :, self.degree]
-        # threshold = torch.sigmoid(params[:, :, self.degree + 1])  # Between 0 and 1
+            if self.pca_mode:
+                x_input, x_residual = self.extract_high_pca_modes(x)
+            else:
+                x_input = x
 
-        # Apply polynomial transformation
-        transformed_x = sum((x ** (i + 1)) * scales[i] for i in range(self.degree)) + shift
+            scales = [torch.exp(param[:, :, i]) for i in range(self.degree)]  # Ensure positive scaling
+            shift = param[:, :, self.degree]
 
-        # Apply thresholding and activation
-        # zero_mask = x <= threshold
-        # transformed_x = torch.where(zero_mask, torch.zeros_like(transformed_x), transformed_x)
-        transformed_x = torch.relu(transformed_x)
+            # Apply polynomial transformation
+            transformed_x = sum((x_input ** (i + 1)) * scales[i] for i in range(self.degree)) + shift
 
-        if self.pca_mode:
-            transformed_x = transformed_x + x_residual
+            # Apply thresholding and activation
+            transformed_x = torch.relu(transformed_x)
 
-        return transformed_x
+            if self.pca_mode:
+                transformed_x = transformed_x + x_residual
+
+            transformed_outputs.append(transformed_x)
+
+        # Average over all transformed outputs
+        if len(transformed_outputs) > 1:
+            final_output = torch.stack(transformed_outputs, dim=0).mean(dim=0)
+        else:
+            final_output = transformed_outputs[0]
+
+        return final_output
     
     def extract_high_pca_modes(self, X: torch.Tensor, min_variance: float = 0.90) -> tuple[torch.Tensor, torch.Tensor]:
         # Step 1: Center the data (remove spatial mean)
@@ -292,3 +325,67 @@ class DiffusionModel(nn.Module):
         x = self.relu(self.fc1(x))
         x = self.fc2(x)
         return x
+
+
+
+class DilatedResBlock(nn.Module):
+    def __init__(self, channels, kernel_size=3, dilation=1, dropout=0.1, causal=False):
+        super().__init__()
+        self.causal = causal
+        pad = (kernel_size - 1) * dilation
+        left_pad = pad if causal else pad // 2
+
+        self.pad1 = (left_pad, 0) if causal else (pad // 2, pad - pad // 2)
+        self.pad2 = (left_pad, 0) if causal else (pad // 2, pad - pad // 2)
+
+        self.conv1 = nn.Conv1d(channels, channels, kernel_size, dilation=dilation)
+        self.conv2 = nn.Conv1d(channels, channels, kernel_size, dilation=dilation)
+        self.norm1 = nn.GroupNorm(1, channels)
+        self.norm2 = nn.GroupNorm(1, channels)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        # x: [B, C, T]
+        y = F.pad(x, self.pad1) if self.causal else F.pad(x, self.pad1, mode='constant', value=0)
+        y = self.conv1(y)
+        y = F.gelu(self.norm1(y))
+        y = self.dropout(y)
+
+        y = F.pad(y, self.pad2) if self.causal else F.pad(y, self.pad2, mode='constant', value=0)
+        y = self.conv2(y)
+        y = self.norm2(y)
+
+        return F.gelu(x + self.dropout(y))  # residual
+
+class TemporalCNN(nn.Module):
+    """
+    Temporal 1D CNN over rho (sequence length).
+    Accepts [B, T, nx] and returns [B, T, ny].
+    """
+    def __init__(
+        self,
+        nx,
+        ny,
+        hidden=64,
+        num_blocks=4,
+        kernel_size=3,
+        base_dilation=1,
+        dropout=0.1,
+        causal=False
+    ):
+        super().__init__()
+        self.input_proj = nn.Conv1d(nx, hidden, kernel_size=1)
+        blocks = []
+        for i in range(num_blocks):
+            dilation = (base_dilation ** i) if base_dilation > 1 else (2 ** i)
+            blocks.append(DilatedResBlock(hidden, kernel_size, dilation, dropout, causal))
+        self.blocks = nn.Sequential(*blocks)
+        self.output_proj = nn.Conv1d(hidden, ny, kernel_size=1)
+
+    def forward(self, x_b_t_nx):
+        # x_b_t_nx: [B, T, nx]
+        x = x_b_t_nx.transpose(1, 2)        # -> [B, nx, T]
+        x = self.input_proj(x)              # -> [B, H, T]
+        x = self.blocks(x)                  # -> [B, H, T]
+        y = self.output_proj(x)             # -> [B, ny, T]
+        return y.transpose(1, 2)

@@ -32,10 +32,10 @@ else:
     else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
-run_id = '74438819'  # Example run ID, replace with actual run ID
-testepoch = 390
+run_id = '764effb6'  # Example run ID, replace with actual run ID
+testepoch = 300
 
-run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs_revised_pca/')
+run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_MLP_LSTM/')
 # Load the config.yaml file
 with open(os.path.join(run_path, 'train_config.yaml'), 'r') as f:
     config = yaml.safe_load(f)
@@ -105,8 +105,8 @@ shapefile_filter_path =  None if not spatial_test  else config['shapefile_filter
 ###-------- Developer section here -----------###
 
 if logging:
-    exp = f'conus_gridmet_new/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
-    writer = SummaryWriter(f"runs_LSTM/{exp}")
+    exp = f'conus_gridmet/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
+    writer = SummaryWriter(f"runs_revised/{exp}")
 
 
 save_path = run_path
