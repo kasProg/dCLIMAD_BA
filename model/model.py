@@ -101,11 +101,21 @@ class QuantileMappingModel(nn.Module):
             else:
                 x_input = x
 
+            wet_day_threshold = 0.1  # Set your threshold for wet days
+            wet_mask = x_input > wet_day_threshold
+
             scales = [torch.exp(param[:, :, i]) for i in range(self.degree)]  # Ensure positive scaling
             shift = param[:, :, self.degree]
 
             # Apply polynomial transformation
-            transformed_x = sum((x_input ** (i + 1)) * scales[i] for i in range(self.degree)) + shift
+            # transformed_x = sum((x_input ** (i + 1)) * scales[i] for i in range(self.degree)) + shift
+
+            # Apply polynomial transformation only to wet days
+            transformed_x = torch.zeros_like(x_input)
+            transformed_x[wet_mask] = sum((x_input[wet_mask] ** (i + 1)) * scales[i][wet_mask] for i in range(self.degree)) + shift[wet_mask]
+
+            # For dry days, you can keep the original value or set to zero
+            transformed_x[~wet_mask] = x_input[~wet_mask]  # or 0
 
             # Apply thresholding and activation
             transformed_x = torch.relu(transformed_x)

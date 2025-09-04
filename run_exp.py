@@ -3,7 +3,7 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import os
 from model.model import QuantileMappingModel, QuantileMappingModel1
-from model.loss import rainy_day_loss, distributional_loss_interpolated, autocorrelation_loss, fourier_spectrum_loss
+from model.loss import CorrelationLoss, rainy_day_loss, distributional_loss_interpolated, autocorrelation_loss, fourier_spectrum_loss
 from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
 from data.helper import generate_run_id
@@ -250,6 +250,11 @@ for epoch in range(num_epochs+1):
             loss+= rainy_loss
             loss2 += rainy_loss.item()
 
+        if 'correlation' in loss_func:
+            corr_loss = CorrelationLoss(transformed_x, batch_y)
+            loss+= corr_loss
+            loss2 += corr_loss.item()
+
 
         # ws_dist = 0.5*wasserstein_distance_loss(transformed_x.T, batch_y.T)
         # trendloss = trend_loss(transformed_x.T, batch_x.T, device)
@@ -313,6 +318,10 @@ for epoch in range(num_epochs+1):
                     if 'rainy_day' in loss_func:
                         val_rainy_day_loss = w2 * rainy_day_loss(transformed_x.T, batch_y.T)
                         val_loss += val_rainy_day_loss
+
+                    if 'correlation' in loss_func:
+                        val_corr_loss = w2 * CorrelationLoss(transformed_x.T, batch_y.T)
+                        val_loss += val_corr_loss
 
                     val_epoch_loss += val_loss.item()
                     # Store predictions

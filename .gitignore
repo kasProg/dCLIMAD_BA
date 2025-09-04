@@ -42,3 +42,6 @@ analysis_ensemble2.ipynb
 temp*
 jobs_CNN
 outputs
+auto_select_demo
+demo_best.json
+demo_results.csv

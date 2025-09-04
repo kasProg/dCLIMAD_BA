@@ -178,3 +178,33 @@ def fourier_spectrum_loss(pred, target):
     target_power = target_power / (target_power.sum(dim=1, keepdim=True) + 1e-8)
 
     return F.mse_loss(pred_power, target_power)
+
+
+
+
+def CorrelationLoss(pred, target, eps=1e-8):
+    """
+    Correlation-based loss function (1 - Pearson correlation).
+    Minimizing this pushes predictions and targets to be highly correlated.
+    """
+
+    # Flatten if multi-dimensional
+    pred = pred.view(pred.size(0), -1)
+    target = target.view(target.size(0), -1)
+
+    # Demean
+    pred_mean = pred - pred.mean(dim=1, keepdim=True)
+    target_mean = target - target.mean(dim=1, keepdim=True)
+
+    # Numerator: covariance
+    cov = (pred_mean * target_mean).sum(dim=1)
+
+    # Denominator: product of standard deviations
+    pred_std = torch.sqrt((pred_mean**2).sum(dim=1) + eps)
+    target_std = torch.sqrt((target_mean**2).sum(dim=1) + eps)
+
+    corr = cov / (pred_std * target_std + eps)
+
+    # Loss = 1 - correlation (maximize correlation → minimize loss)
+    loss = 1 - corr.mean()
+    return loss
