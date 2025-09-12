@@ -3,7 +3,7 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import os
 from model.model import QuantileMappingModel, QuantileMappingModel1
-from model.loss import CorrelationLoss, rainy_day_loss, distributional_loss_interpolated, autocorrelation_loss, fourier_spectrum_loss
+from model.loss import CorrelationLoss, rainy_day_loss, distributional_loss_interpolated, autocorrelation_loss, fourier_spectrum_loss, totalPrecipLoss
 from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
 from data.helper import generate_run_id
@@ -13,6 +13,7 @@ import data.helper as helper
 import datetime
 import os
 from eval.metrics import *
+import json
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
@@ -254,6 +255,11 @@ for epoch in range(num_epochs+1):
             corr_loss = CorrelationLoss(transformed_x, batch_y)
             loss+= corr_loss
             loss2 += corr_loss.item()
+            
+        if 'totalP' in loss_func:
+            total_precip_loss = 0.0001*totalPrecipLoss(transformed_x, batch_y)
+            loss+= total_precip_loss
+            loss3 += total_precip_loss.item()
 
 
         # ws_dist = 0.5*wasserstein_distance_loss(transformed_x.T, batch_y.T)
@@ -323,6 +329,10 @@ for epoch in range(num_epochs+1):
                         val_corr_loss = w2 * CorrelationLoss(transformed_x.T, batch_y.T)
                         val_loss += val_corr_loss
 
+                    if 'totalP' in loss_func:
+                        val_total_precip_loss = 0.0001*totalPrecipLoss(transformed_x, batch_y)
+                        val_loss += val_total_precip_loss
+
                     val_epoch_loss += val_loss.item()
                     # Store predictions
                     xt_val.append(transformed_x.cpu())
@@ -358,6 +368,14 @@ for epoch in range(num_epochs+1):
             keys_mean = ['SDII (Monthly)','CDD (Yearly)', 'CWD (Yearly)', "Rx1day", "Rx5day", "R10mm",  "R20mm", "R95pTOT", "R99pTOT"]
             mean_bias_percentages = dict(filter(lambda item: item[0] in keys_mean , mean_bias_percentages.items()))
 
+            row = {"epoch": int(epoch), "loss": float(avg_val_loss), "metrics": {k: float(np.nanmedian(v[1])) for k, v in mean_bias_percentages.items()}}
+            with open(f"{save_path}/val_metrics.jsonl", "a") as f:
+                f.write(json.dumps(row) + "\n")
+            
+            if not os.path.exists(f"{save_path_address}/{clim}-{ref}/baseline.jsonl"):
+                row_baseline = {k: float(np.nanmedian(v[0])) for k, v in mean_bias_percentages.items()}
+                with open(f"{save_path_address}/{clim}-{ref}/baseline_{val_period[0]}_{val_period[1]}.jsonl", "a") as f:
+                    f.write(json.dumps(row_baseline) + "\n")
 
             if logging:
                 writer.add_scalar("Loss/validation", avg_val_loss, epoch)

@@ -208,3 +208,13 @@ def CorrelationLoss(pred, target, eps=1e-8):
     # Loss = 1 - correlation (maximize correlation → minimize loss)
     loss = 1 - corr.mean()
     return loss
+
+def totalPrecipLoss(pred, target):
+    """
+    Loss function based on total precipitation difference.
+    """
+    total_pred = pred.sum(dim=1)  # Sum over time dimension
+    total_target = target.sum(dim=1)
+
+    loss = F.mse_loss(total_pred, total_target)
+    return loss

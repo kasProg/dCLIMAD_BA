@@ -18,6 +18,7 @@ from model.benchmark import BiasCorrectionBenchmark
 import data.valid_crd as valid_crd
 import data.helper as helper
 import yaml
+import argparse
 
 ###-----The code is currently accustomed to CMIP6-Livneh/gridmet Data format ----###
 
@@ -32,10 +33,17 @@ else:
     else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
-run_id = '764effb6'  # Example run ID, replace with actual run ID
-testepoch = 300
+parser = argparse.ArgumentParser(description="Evaluate experiment")
+parser.add_argument('--run_id', type=str, required=True, help='Run ID')
+parser.add_argument('--testepoch', type=int, required=True, help='Test epoch')
+parser.add_argument('--base_dir', type=str, required=True, help='Base directory for outputs')
+args = parser.parse_args()
 
-run_path = helper.load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_MLP_LSTM/')
+run_id = args.run_id
+testepoch = args.testepoch
+base_dir = args.base_dir
+
+run_path = helper.load_run_path(run_id, base_dir=base_dir)
 # Load the config.yaml file
 with open(os.path.join(run_path, 'train_config.yaml'), 'r') as f:
     config = yaml.safe_load(f)
@@ -44,6 +52,8 @@ with open(os.path.join(run_path, 'train_config.yaml'), 'r') as f:
 logging = True
 cmip6_dir = config['cmip_dir']
 ref_path = config['ref_dir']
+
+
 
 clim = config['clim']
 ref = config['ref']
@@ -85,6 +95,7 @@ autoregression = config['autoregression']
 lag = config['lag']
 wet_dry_flag = config['wet_dry_flag']
 pca_mode = config['pca_mode']
+logging_path = config['logging_path']
 
 
 # ny = 4 # number of params
@@ -100,13 +111,12 @@ shapefile_filter_path =  None if not spatial_test  else config['shapefile_filter
 # crd =  [14, 15, 16, 17, 18] 
 # shape_file_filter = '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
 
+if logging:
+    exp = f'{logging_path}/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
+    writer = SummaryWriter(f"runs_revised/{exp}")
 
 
 ###-------- Developer section here -----------###
-
-if logging:
-    exp = f'conus_gridmet/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
-    writer = SummaryWriter(f"runs_revised/{exp}")
 
 
 save_path = run_path

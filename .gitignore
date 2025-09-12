@@ -45,3 +45,4 @@ outputs
 auto_select_demo
 demo_best.json
 demo_results.csv
+*.png
