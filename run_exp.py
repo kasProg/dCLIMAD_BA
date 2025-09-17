@@ -63,6 +63,9 @@ parser.add_argument('--wet_dry_flag', action='store_true')
 parser.add_argument('--pca_mode', action='store_true')
 parser.add_argument('--learning_rate', type=float, default=0.01)
 
+parser.add_argument('--monotone', action='store_true')
+
+
 
 args = parser.parse_args()
 cuda_device = args.cuda_device
@@ -107,6 +110,7 @@ loss_func = args.loss
 wet_dry_flag = args.wet_dry_flag
 pca_mode = args.pca_mode
 learning_rate = args.learning_rate
+monotone = args.monotone
 
 
 
@@ -200,7 +204,8 @@ if autoregression:
 if wet_dry_flag:
     nx += 1  # Adding wet/dry flag as an additional feature
 
-model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode).to(device)
+model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode,
+                              monotone=monotone).to(device)
 # model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
     
@@ -227,7 +232,7 @@ for epoch in range(num_epochs+1):
         batch_y = batch_y.to(device)
 
         # Forward pass
-        transformed_x = model(batch_x, batch_input_norm, time_scale=time_labels)
+        transformed_x, _ = model(batch_x, batch_input_norm, time_scale=time_labels)
         # loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
 
         # Compute the loss
@@ -307,7 +312,7 @@ for epoch in range(num_epochs+1):
                     batch_x = batch_x.to(device)
                     batch_y = batch_y.to(device)
 
-                    transformed_x = model(batch_x, batch_input_norm, time_labels_val)
+                    transformed_x, _ = model(batch_x, batch_input_norm, time_labels_val)
                     # val_loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
                     if 'quantile' in loss_func:
                         val_dist_loss = w1 * distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)

@@ -173,6 +173,7 @@ model.eval()
 transformed_x = []
 transformed_x_future = []
 x_future = []
+params_all = []
 x = []
 y = []
 with torch.no_grad():
@@ -180,20 +181,21 @@ with torch.no_grad():
         batch_input_norm, batch_x, batch_y = [b.to(device) for b in batch]
 
         # Forward pass
-        predictions = model(batch_x, batch_input_norm, time_scale = time_labels)
+        predictions, params = model(batch_x, batch_input_norm, time_scale = time_labels)
 
         # Store predictions
         transformed_x.append(predictions.cpu())
 
         y.append(batch_y.cpu())
         x.append(batch_x.cpu())
-    
+        params_all.append(params.cpu())
+
     if trend_analysis:
         for batch in dataloader_future:
             batch_input_norm, batch_x = [b.to(device) for b in batch]
 
             # Forward pass
-            predictions = model(batch_x, batch_input_norm, time_scale = time_labels_future)
+            predictions, _ = model(batch_x, batch_input_norm, time_scale = time_labels_future)
 
             # Store predictions
             transformed_x_future.append(predictions.cpu())
@@ -211,7 +213,9 @@ transformed_x = torch.cat(transformed_x, dim=0).numpy().T
 transformed_x_nc = valid_crd.reconstruct_nc(transformed_x, valid_coords, time_x, input_x['precipitation'][0])
 transformed_x_nc.to_netcdf(f'{test_save_path}/xt.nc')
 x = torch.cat(x, dim=0).numpy().T
-y = torch.cat(y, dim=0).numpy().T        
+y = torch.cat(y, dim=0).numpy().T
+params_all = torch.cat(params_all, dim=0).numpy()  
+torch.save(params_all, f'{test_save_path}/params.pt')
 
 torch.save(transformed_x, f'{test_save_path}/xt.pt')
 avg_improvement, individual_improvements = compare_distributions(transformed_x, x, y)

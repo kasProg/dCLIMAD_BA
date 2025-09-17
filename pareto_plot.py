@@ -9,8 +9,8 @@ colors = plt.cm.tab10(np.linspace(0, 1, len(clim)))  # Use a colormap for distin
 markers = ['o', '^', 'v', '<', '>', 'p']  # Circle, triangle up, triangle down, triangle left, triangle right, tri_down
 plt.figure(figsize=(10, 6))
 for i, c in enumerate(clim):
-    exps_path = f'/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_lr1e-4/{c}-gridmet/demo_select_gridmet.csv'
-    baseline_path = f'/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_lr1e-4/{c}-gridmet/baseline_2001_2014.jsonl'
+    exps_path = f'/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_monotone/{c}-gridmet/demo_select_gridmet.csv'
+    baseline_path = f'/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_monotone/{c}-gridmet/baseline_2001_2014.jsonl'
     exps = pd.read_csv(exps_path)
 
     with open(baseline_path, 'r') as f:
@@ -32,19 +32,19 @@ for i, c in enumerate(clim):
 
     ## remove rows with r10/r20/rx1/rx5 >100 or <100
     exps = exps[(abs(exps['r10']) < 100) & (abs(exps['r20']) < 100) & (abs(exps['rx1']) < 100) & (abs(exps['rx5']) < 100)]
-    # plt.scatter(abs(exps['r20']), abs(exps['rx5']), alpha=0.7, marker=markers[i], color=colors[i], label=c)
-    plt.scatter(abs(exps['r10']), abs(exps['rx1']), alpha=0.7, marker=markers[i], color=colors[i], label=c)
+    plt.scatter(abs(exps['r20']), abs(exps['rx5']), alpha=0.7, marker=markers[i], color=colors[i], label=c)
+    # plt.scatter(abs(exps['r10']), abs(exps['rx1']), alpha=0.7, marker=markers[i], color=colors[i], label=c)
 
-    plt.scatter(abs(r10mm_baseline), abs(rx1day_baseline), alpha=0.7, marker=markers[i],
+    plt.scatter(abs(r20mm_baseline), abs(rx5day_baseline), alpha=0.7, marker=markers[i],
                  edgecolors='black', color=colors[i], linewidths=2, s=120 )
 
 # plt.colorbar(scatter, label='J')
-plt.xlabel('R10 (Abs bias%)')
-plt.ylabel('Rx1 (Abs bias%)')
-plt.title('Scatter plot of R10 vs Rx1')
+plt.xlabel('R20 (Abs bias%)')
+plt.ylabel('Rx5 (Abs bias%)')
+plt.title('Scatter plot of R20 vs Rx5')
 plt.grid(True)
 plt.legend(title="Climate Model (baseline are with solid border)")
 
-plt.savefig('/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_lr1e-4/r10_vs_rx1_scatter.png', dpi=300)
+plt.savefig('/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_monotone/r20_vs_rx5x_gridmet.png', dpi=300)
 
 k=1
