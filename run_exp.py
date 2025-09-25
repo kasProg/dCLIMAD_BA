@@ -2,8 +2,8 @@ import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import os
-from model.model import QuantileMappingModel, QuantileMappingModel1
-from model.loss import CorrelationLoss, rainy_day_loss, distributional_loss_interpolated, autocorrelation_loss, fourier_spectrum_loss, totalPrecipLoss
+from model.model import QuantileMappingModel, SpatioTemporalQM
+from model.loss import CorrelationLoss, rainy_day_loss, distributional_loss_interpolated, autocorrelation_loss, fourier_spectrum_loss, totalPrecipLoss, spatial_correlation_loss
 from ibicus.evaluate.metrics import *
 from data.loader import DataLoaderWrapper
 from data.helper import generate_run_id
@@ -178,7 +178,9 @@ data_loader = DataLoaderWrapper(
     crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
     chunk=chunk, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, device=device)
 
-dataloader = data_loader.get_dataloader()
+dataloader = data_loader.get_spatial_dataloader()
+
+valid_coords = data_loader.get_valid_coords()
 
 if validation:
     data_loader_val = DataLoaderWrapper(
@@ -187,7 +189,7 @@ if validation:
     crd=spatial_extent_val, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
     chunk=False, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, device=device)
 
-    dataloader_val = data_loader_val.get_dataloader()
+    dataloader_val = data_loader_val.get_spatial_dataloader()
 
 
 if time_scale == 'daily':
@@ -204,9 +206,9 @@ if autoregression:
 if wet_dry_flag:
     nx += 1  # Adding wet/dry flag as an additional feature
 
-model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode,
-                              monotone=monotone).to(device)
-# model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
+# model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode,
+#                               monotone=monotone).to(device)
+model = SpatioTemporalQM(f_in=nx, f_model=hidden_size, heads=2, t_blocks=2, st_layers=1, degree=degree, dropout=0.1, transform_type=model_type).to(device)
 
     
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -225,20 +227,28 @@ for epoch in range(num_epochs+1):
     loss2 = 0
     loss3 = 0
 
-    for batch_input_norm, batch_x, batch_y in dataloader:
+    for patches, batch_input_norm, batch_x, batch_y in dataloader:
         # Move batch to device
+
+        patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device)  # (B,P,2), numpy
+
         batch_input_norm = batch_input_norm.to(device)
         batch_x = batch_x.to(device)
         batch_y = batch_y.to(device)
 
         # Forward pass
-        transformed_x, _ = model(batch_x, batch_input_norm, time_scale=time_labels)
+        # transformed_x, _ = model(batch_x, batch_input_norm, time_scale=time_labels)
+        transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x)
+
+
+        ## create empty tensor of shape batch_x
+        # transformed_x = torch.tensor([0]).to(device)
         # loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
 
         # Compute the loss
         # kl_loss = 0.699*kl_divergence_loss(transformed_x.T, batch_y.T, num_bins=1000)
         if 'quantile' in loss_func:
-            dist_loss = w1 * distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)
+            dist_loss = w1 * distributional_loss_interpolated(transformed_x.movedim(-1, 0), batch_y.movedim(-1, 0), device=device, num_quantiles=1000, emph_quantile=emph_quantile)
             loss = dist_loss
             loss1 += dist_loss.item()
 
@@ -252,7 +262,7 @@ for epoch in range(num_epochs+1):
             loss+= fourier_loss
             
         if 'rainy_day' in loss_func:
-            rainy_loss = w2 * rainy_day_loss(transformed_x.T, batch_y.T)
+            rainy_loss = w2 * rainy_day_loss(transformed_x.movedim(-1, 0), batch_y.movedim(-1, 0))
             loss+= rainy_loss
             loss2 += rainy_loss.item()
 
@@ -265,6 +275,11 @@ for epoch in range(num_epochs+1):
             total_precip_loss = 0.0001*totalPrecipLoss(transformed_x, batch_y)
             loss+= total_precip_loss
             loss3 += total_precip_loss.item()
+
+        if 'spatial_correlation' in loss_func:
+            spatial_corr_loss = spatial_correlation_loss(transformed_x, batch_y)
+            loss+= spatial_corr_loss
+            loss3 += spatial_corr_loss.item()
 
 
         # ws_dist = 0.5*wasserstein_distance_loss(transformed_x.T, batch_y.T)
@@ -303,19 +318,26 @@ for epoch in range(num_epochs+1):
         if validation:
             model.eval()
             val_epoch_loss = 0
+            patch_val = []
             xt_val = []
             x_val = []
             y_val = []
             with torch.no_grad():
-                for batch_input_norm, batch_x, batch_y in dataloader_val:
+                for patches, batch_input_norm, batch_x, batch_y in dataloader_val:
+                    
+                    patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device) 
+                    
                     batch_input_norm = batch_input_norm.to(device)
                     batch_x = batch_x.to(device)
                     batch_y = batch_y.to(device)
 
-                    transformed_x, _ = model(batch_x, batch_input_norm, time_labels_val)
+                    # transformed_x, _ = model(batch_x, batch_input_norm, time_labels_val)
+
+                    transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x)
+
                     # val_loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
                     if 'quantile' in loss_func:
-                        val_dist_loss = w1 * distributional_loss_interpolated(transformed_x.T, batch_y.T, device=device, num_quantiles=1000, emph_quantile=emph_quantile)
+                        val_dist_loss = w1 * distributional_loss_interpolated(transformed_x.movedim(-1, 0), batch_y.movedim(-1, 0), device=device, num_quantiles=1000, emph_quantile=emph_quantile)
                         val_loss = val_dist_loss
 
                     if 'autocorrelation' in loss_func:
@@ -327,29 +349,40 @@ for epoch in range(num_epochs+1):
                         val_loss += val_fourier_loss
 
                     if 'rainy_day' in loss_func:
-                        val_rainy_day_loss = w2 * rainy_day_loss(transformed_x.T, batch_y.T)
+                        val_rainy_day_loss = w2 * rainy_day_loss(transformed_x.movedim(-1, 0), batch_y.movedim(-1, 0))
                         val_loss += val_rainy_day_loss
 
                     if 'correlation' in loss_func:
-                        val_corr_loss = w2 * CorrelationLoss(transformed_x.T, batch_y.T)
+                        val_corr_loss = w2 * CorrelationLoss(transformed_x, batch_y)
                         val_loss += val_corr_loss
 
                     if 'totalP' in loss_func:
                         val_total_precip_loss = 0.0001*totalPrecipLoss(transformed_x, batch_y)
                         val_loss += val_total_precip_loss
 
+                    if 'spatial_correlation' in loss_func:
+                        val_spatial_corr_loss = spatial_correlation_loss(transformed_x, batch_y)
+                        val_loss += val_spatial_corr_loss
+
                     val_epoch_loss += val_loss.item()
                     # Store predictions
-                    xt_val.append(transformed_x.cpu())
+                    xt_val.append(transformed_x.detach().cpu())
+                    patch_val.append(patches.detach().cpu())
+                    y_val.append(batch_y.detach().cpu())
+                    x_val.append(batch_x.detach().cpu())
 
-                    y_val.append(batch_y.cpu())
-                    x_val.append(batch_x.cpu())
+            
+
 
             avg_val_loss = val_epoch_loss / len(dataloader_val)
 
-            xt_val = torch.cat(xt_val, dim=0).numpy().T
-            x_val = torch.cat(x_val, dim=0).numpy().T
-            y_val = torch.cat(y_val, dim=0).numpy().T
+            x_val = data_loader_val.reconstruct_from_patches(patch_val, x_val, mode='mean').numpy().T ##time, coords
+            xt_val = data_loader_val.reconstruct_from_patches(patch_val, xt_val, mode='mean').numpy().T
+            y_val = data_loader_val.reconstruct_from_patches(patch_val, y_val, mode='mean').numpy().T
+            # xt_val = torch.cat(xt_val, dim=0).numpy().T ##time, coords
+            # x_val = torch.cat(x_val, dim=0).numpy().T
+            # y_val = torch.cat(y_val, dim=0).numpy().T
+
             x_val_time = torch.load(f'{val_save_path}/time.pt', weights_only = False)
 
             ## to manage time

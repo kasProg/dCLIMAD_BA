@@ -1,7 +1,7 @@
 sweep:
   clim: ['access_cm2', 'gfdl_esm4', 'ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr','mri_esm2_0']
   model_type: ['LSTM']
-  degree: [8]   #if montone is True, degree is number of bumps
+  degree: [14]   #if montone is True, degree is number of bumps
   layers: [4]
   emph_quantile: [0.5, 0.9]
   time_scale: ['daily']

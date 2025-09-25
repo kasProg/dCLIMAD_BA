@@ -1,6 +1,6 @@
 sweep:
-  clim: ['mri_esm2_0']
-  model_type: ['LSTM']
+  clim: ['ipsl_cm6a_lr']
+  model_type: ['poly']
   degree: [1, 2, 3]
   layers: [3]
   emph_quantile: [0.5, 0.9]
@@ -20,9 +20,9 @@ fixed:
   wet_dry_flag: True # if True, will use wet/dry flag in the data loader
 
   train_start: 1979
-  train_end: 2000
-  val_start: 2001
-  val_end: 2014
+  train_end: 1990
+  val_start: 1991
+  val_end: 1995
   trend_start: 2075
   trend_end: 2099
 
@@ -30,10 +30,10 @@ fixed:
   epochs: 400
   hidden_size: 64
   testepoch: 50
-  batch_size: 100
+  batch_size: 5
   autoregression: True # if True, will use autoregressive features in the data loader
   lag: 3
-  loss: ['quantile', 'rainy_day', 'totalP']
+  loss: ['quantile', 'rainy_day', 'spatial_correlation']
   pca_mode: False
   learning_rate: 1e-4
 
@@ -45,13 +45,13 @@ fixed:
   ## run conditions
   trend_analysis: True
   benchmarking: True
-  logging: True
+  logging: False
   train: True
   validation: True
 
 
   ## PATHS
-  save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_totalP'
+  save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_test'
   logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_revised/conus_gridmet_totalP'
 
 
@@ -64,4 +64,4 @@ fixed:
 
 
 
-available_gpus: [0,1,2,3]  # <-- HERE
+available_gpus: [0]  # <-- HERE

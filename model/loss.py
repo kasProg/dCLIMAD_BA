@@ -25,14 +25,18 @@ def distributional_loss_interpolated(transformed_x, target_y, device, num_quanti
     
     if isinstance(emph_quantile, (float, int)):
         # Single quantile emphasis
-        weights = torch.exp(-torch.abs(quantile_levels - emph_quantile)).unsqueeze(-1)
+        weights = torch.exp(-torch.abs(quantile_levels - emph_quantile))
+        weights = weights.view(-1, *[1]*(quantiles_x.dim()-1)).expand_as(quantiles_x)
+
     elif isinstance(emph_quantile, (list, tuple)) and all(isinstance(q, (float, int)) for q in emph_quantile):
         # Multiple quantiles emphasis
-        weights = sum(torch.exp(-torch.abs(quantile_levels - q)) for q in emph_quantile).unsqueeze(-1)
+        weights = sum(torch.exp(-torch.abs(quantile_levels - q)) for q in emph_quantile)
+        weights = weights.view(-1, *[1]*(quantiles_x.dim()-1)).expand_as(quantiles_x)
+
     else:
         # No emphasis (uniform weighting)
         weights = 1
-
+        
 
     # Calculate the mean squared error (MSE) between quantiles
     loss = torch.mean(weights*(quantiles_x - quantiles_y) ** 2)
@@ -218,3 +222,29 @@ def totalPrecipLoss(pred, target):
 
     loss = F.mse_loss(total_pred, total_target)
     return loss
+
+
+def spatial_correlation_loss(yhat, ytrue, eps=1e-8):
+    B,P,T = yhat.shape
+    yh = yhat - yhat.mean(dim=1, keepdim=True)
+    yt = ytrue - ytrue.mean(dim=1, keepdim=True)
+
+    if yh.shape[2] != yt.shape[2]:
+        # Resample to the same temporal resolution using nearest neighbor
+        T_out = min(yh.shape[2], yt.shape[2])
+        yh = resample_time_nearest(yh, T_out)
+        yt = resample_time_nearest(yt, T_out)
+
+    num = (yh * yt).sum(dim=1)            # (B,T)
+    den = (yh.square().sum(dim=1).clamp_min(eps).sqrt() *
+           yt.square().sum(dim=1).clamp_min(eps).sqrt()) 
+    corr = num / den                      # no clamp
+    return (1.0 - corr).mean()
+
+
+def resample_time_nearest(x, T_out):
+    B, P, T_in = x.shape
+    y = x.reshape(B*P, 1, T_in)
+    y = F.interpolate(y, size=T_out, mode='nearest')   # no smoothing
+    return y.reshape(B, P, T_out)
+

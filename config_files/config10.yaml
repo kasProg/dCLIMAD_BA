@@ -1,0 +1,69 @@
+sweep:
+  clim: ['miroc6', 'mpi_esm1_2_lr','mri_esm2_0']
+  model_type: ['monotone']
+  degree: [8]   #if montone is True, degree is number of bumps
+  layers: [4]
+  emph_quantile: [0.5, 0.9]
+  time_scale: ['daily']
+  input_attrs: ['elev;slope;aspect;landcover']
+
+
+
+fixed:
+
+  ## data
+  cmip_dir: '/pscratch/sd/k/kas7897/cmip6'
+  ref_dir: '/pscratch/sd/k/kas7897/gridmet'
+  ref: 'gridmet'
+  ref_var: 'precipitation_amount'
+
+  wet_dry_flag: True # if True, will use wet/dry flag in the data loader
+
+  train_start: 1979
+  train_end: 2000
+  val_start: 2001
+  val_end: 2014
+  trend_start: 2075
+  trend_end: 2099
+
+  monotone: True # if True, will use monotonicity constraint in the model
+
+  ## model params
+  epochs: 500
+  hidden_size: 64
+  testepoch: 50
+  batch_size: 5
+  autoregression: True # if True, will use autoregressive features in the data loader
+  lag: 3
+  loss: ['quantile', 'rainy_day']
+  pca_mode: False
+  learning_rate: 1e-4
+
+  ## chunking params
+  chunk: True
+  chunk_size: 365
+  stride: 90
+
+  ## run conditions
+  trend_analysis: True
+  benchmarking: True
+  logging: True
+  train: True
+  validation: True
+
+
+  ## PATHS
+  save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_monotone_spatioTemp'
+  logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_revised/conus_gridmet_monotone_spatioTemp'
+
+
+  ## for spatial tests--- leave empty for strict temporal tests
+  # currently spatial tests by feeding CONUS HUC2 shapefiles, and the coordiantes are grouped based on the listed HUC2s
+  spatial_test: False
+  shapefile_filter_path: None
+  spatial_extent: [0]  #list the number of HUC2s you want to train your coordinates
+  spatial_extent_val: [0] #list the number of HUC2s you want to validate your coordinates
+
+
+
+available_gpus: [0,1,2,3]  # <-- HERE

@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 import pandas as pd
 import numpy as np
-from model.model import QuantileMappingModel1, QuantileMappingModel
+from model.model import QuantileMappingModel, SpatioTemporalQM
 from model.loss import rainy_day_loss, distributional_loss_interpolated, compare_distributions, rmse, kl_divergence_loss, wasserstein_distance_loss, trend_loss
 import data.process as process
 from sklearn.preprocessing import StandardScaler
@@ -96,6 +96,7 @@ lag = config['lag']
 wet_dry_flag = config['wet_dry_flag']
 pca_mode = config['pca_mode']
 logging_path = config['logging_path']
+hidden_size = config['hidden_size']
 
 
 # ny = 4 # number of params
@@ -133,9 +134,10 @@ data_loader = DataLoaderWrapper(
     crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression, 
     lag=lag, wet_dry_flag=wet_dry_flag, device=device)
 
-dataloader = data_loader.get_dataloader()
+dataloader = data_loader.get_spatial_dataloader()
+valid_coords = data_loader.get_valid_coords()
 
-if trend_analysis:
+if not trend_analysis:
     future_save_path = model_save_path + f'/{scenario}_{trend_future_period[0]}_{trend_future_period[1]}/'
     os.makedirs(future_save_path, exist_ok=True)
     data_loader_future = DataLoaderWrapper( 
@@ -162,7 +164,9 @@ else:
     time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
     time_labels_future = helper.extract_time_labels(data_loader_future.load_dynamic_inputs()[1], label_type=time_scale) if trend_analysis else None
 
-model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode).to(device)
+# model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode).to(device)
+model = SpatioTemporalQM(f_in=nx, f_model=hidden_size, heads=2, t_blocks=2, st_layers=1, degree=degree, dropout=0.1).to(device)
+
 # model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
 
     
@@ -174,28 +178,33 @@ transformed_x = []
 transformed_x_future = []
 x_future = []
 params_all = []
+patch_all = []
 x = []
 y = []
 with torch.no_grad():
     for batch in dataloader:
-        batch_input_norm, batch_x, batch_y = [b.to(device) for b in batch]
+        patches, batch_input_norm, batch_x, batch_y = [b.to(device) for b in batch]
+        patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device)  # (B,P,2), numpy
 
         # Forward pass
-        predictions, params = model(batch_x, batch_input_norm, time_scale = time_labels)
-
+        # predictions, params = model(batch_x, batch_input_norm, time_scale = time_labels)
+        predictions, params = model(batch_input_norm, patches_latlon, batch_x)
         # Store predictions
         transformed_x.append(predictions.cpu())
 
         y.append(batch_y.cpu())
         x.append(batch_x.cpu())
+        patch_all.append(patches.cpu())
         params_all.append(params.cpu())
 
-    if trend_analysis:
+    if not trend_analysis:
         for batch in dataloader_future:
-            batch_input_norm, batch_x = [b.to(device) for b in batch]
+            patches, batch_input_norm, batch_x = [b.to(device) for b in batch]
+            patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device)  # (B,P,2), numpy
 
             # Forward pass
-            predictions, _ = model(batch_x, batch_input_norm, time_scale = time_labels_future)
+            # predictions, _ = model(batch_x, batch_input_norm, time_scale = time_labels_future)
+            predictions, _ = model(batch_input_norm, patches_latlon, batch_x)
 
             # Store predictions
             transformed_x_future.append(predictions.cpu())
@@ -208,14 +217,23 @@ with torch.no_grad():
 # x = x.cpu().detach().numpy()
 # y = y.cpu().detach().numpy()
 
+x = data_loader.reconstruct_from_patches(patch_all, x, mode='mean').numpy().T ##time, coords
+transformed_x = data_loader.reconstruct_from_patches(patch_all, transformed_x, mode='mean').numpy().T
+y = data_loader.reconstruct_from_patches(patch_all, y, mode='mean').numpy().T
+# y = data_loader.reconstruct_from_patches(patch_all, params_all, mode='mean').numpy().T
 
-transformed_x = torch.cat(transformed_x, dim=0).numpy().T
+
+# transformed_x = torch.cat(transformed_x, dim=0).numpy().T
 transformed_x_nc = valid_crd.reconstruct_nc(transformed_x, valid_coords, time_x, input_x['precipitation'][0])
 transformed_x_nc.to_netcdf(f'{test_save_path}/xt.nc')
-x = torch.cat(x, dim=0).numpy().T
-y = torch.cat(y, dim=0).numpy().T
-params_all = torch.cat(params_all, dim=0).numpy()  
-torch.save(params_all, f'{test_save_path}/params.pt')
+
+# x = torch.cat(x, dim=0).numpy().T
+# y = torch.cat(y, dim=0).numpy().T
+# params_all = torch.cat(params_all, dim=0).numpy()
+
+
+
+# torch.save(params_all, f'{test_save_path}/params.pt')
 
 torch.save(transformed_x, f'{test_save_path}/xt.pt')
 avg_improvement, individual_improvements = compare_distributions(transformed_x, x, y)

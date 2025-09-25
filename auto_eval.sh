@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="/pscratch/sd/k/kas7897/dCLIMAD_BA"
-BASE_DIR="$ROOT/outputs/jobs_monotone"
+BASE_DIR="$ROOT/outputs/jobs_monotone_spatioTemp_spatialLoss"
 
 # Detect number of GPUs
 NUM_GPUS=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)

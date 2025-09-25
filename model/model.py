@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class MonotoneMap1D(nn.Module):
     """
     Monotone map:
@@ -54,6 +55,56 @@ class MonotoneMap1D(nn.Module):
         bumps = F.softplus(z)
         y = alpha * x + (w * bumps).sum(dim=-1) + c
         return y
+
+
+
+
+class SpatioTemporalQM(nn.Module):
+    def __init__(self, f_in, f_model=64, heads=4, t_blocks=3, st_layers=2, degree=8, dropout=0.1, transform_type='monotone'):
+        super().__init__()
+        self.embed = nn.Linear(f_in, f_model)
+        self.stacks = nn.ModuleList([STBlock(f_model, heads=heads, t_hidden=2*f_model,
+                                             t_blocks=t_blocks, dropout=dropout) for _ in range(st_layers)])
+        self.transform_type = transform_type
+        if self.transform_type == 'monotone':
+            self.to_params = nn.Linear(f_model, 2 + 3 * degree)  # alpha, c, (w_k, s_k, b_k) for k=1..K
+        else:
+            self.to_params = nn.Linear(f_model, degree + 1)
+        self.monotone = MonotoneMap1D(n_bumps=degree)
+
+    def forward(self, inps, patches_latlon, x_target):       # inps: (B,P,T,F_in), x_target: (B,P,T)
+        h = self.embed(inps)                                 # (B,P,T,Fm)
+        for blk in self.stacks:
+            h = blk(h, patches_latlon)                       # spatio-temporal mixing
+        params = self.to_params(h)                           # (B,P,T,ny)
+        if self.transform_type == 'monotone':
+            yhat = self.monotone(x_target, params)           # (B,P,T)
+        else:
+            # polynomial transform
+            scales = [torch.exp(params[..., i]) for i in range(params.shape[-1]-1)]
+            shift  = params[..., -1]
+            yhat = sum((x_target ** (i + 1)) * scales[i] for i in range(len(scales))) + shift
+        yhat = F.relu(yhat)
+        return yhat, params
+
+
+class STBlock(nn.Module):
+    """
+    Interleaved Spatio-Temporal Block:
+      x -> TemporalConv1d -> SpatialAttention -> (residuals + norm)
+    """
+    def __init__(self, dim, heads=4, t_hidden=128, t_blocks=3, dropout=0.1):
+        super().__init__()
+        self.tenc = TemporalConv1d(dim, hidden=t_hidden, n_blocks=t_blocks, dropout=dropout)
+        self.sattn = PatchSpatialAttention(dim, n_heads=heads, ff_mult=2, dropout=dropout)
+        self.lstm = nn.LSTM(input_size=dim, hidden_size=dim, num_layers=t_blocks, batch_first=True)
+        self.n1 = nn.LayerNorm(dim)
+        self.n2 = nn.LayerNorm(dim)
+
+    def forward(self, x, pos):            # x: (B,P,T,F); pos: (B,P,2)
+        y = self.tenc(self.n1(x)) + x     # temporal residual
+        z = self.sattn(self.n2(y), pos)   # spatial attn (already residual inside)
+        return z
 
 class QuantileMappingModel(nn.Module):
     def __init__(self, nx=1, hidden_dim=64, num_layers=2,
@@ -112,7 +163,6 @@ class QuantileMappingModel(nn.Module):
         # identical to your logic, just factored out
         if str(time_scale) == 'daily':
             return param
-        import pandas as pd, numpy as np, torch
         label_dummies = pd.get_dummies(time_scale)
         weights_np = label_dummies.div(label_dummies.sum(axis=0), axis=1).values.astype(np.float32)
         weights = torch.tensor(weights_np, device=param.device)
@@ -240,6 +290,248 @@ class QuantileMappingModel(nn.Module):
         # Inverse FFT to get back to the time domain
         reconstructed_series = fft.ifft(freq_series, dim=-1).real
         return reconstructed_series
+
+
+
+
+
+
+
+def selective_mode_polynomial_transform(
+    series: torch.Tensor,
+    poly_transform_fn,
+    low_mode_cutoff: int = 10,
+    high_mode_cutoff: int = 100
+):
+    """
+    Applies a selective transformation to different Fourier modes of a time series using a polynomial transformation.
+    
+    Args:
+        series (torch.Tensor): Input tensor of shape (batch, time)
+        poly_transform_fn (callable): A function that takes a real-valued series and returns a transformed series.
+        low_mode_cutoff (int): Frequencies below this are considered "low" and left untransformed.
+        high_mode_cutoff (int): Frequencies above this are considered "high" and transformed.
+    
+    Returns:
+        torch.Tensor: Reconstructed series after transforming selected modes.
+    """
+    # FFT (complex)
+    freq_series = fft.fft(series, dim=-1)
+
+    # Clone for modification
+    transformed_freq = freq_series.clone()
+
+    # High-frequency modes
+    high_only_freq = torch.zeros_like(freq_series)
+    high_only_freq[:, high_mode_cutoff:] = freq_series[:, high_mode_cutoff:]
+
+    # Inverse FFT to real domain of just the high modes
+    high_only_series = fft.ifft(high_only_freq, dim=-1).real
+
+    # Apply polynomial transformation in time domain
+    transformed_high = poly_transform_fn(high_only_series)
+
+    # FFT of transformed high part
+    transformed_high_freq = fft.fft(transformed_high, dim=-1)
+
+    # Replace high-frequency components
+    transformed_freq[:, high_mode_cutoff:] = transformed_high_freq[:, high_mode_cutoff:]
+
+    # Inverse FFT to return to time domain
+    reconstructed = fft.ifft(transformed_freq, dim=-1).real
+
+    return reconstructed
+
+
+
+class DilatedResBlock(nn.Module):
+    def __init__(self, channels, kernel_size=3, dilation=1, dropout=0.1, causal=False):
+        super().__init__()
+        self.causal = causal
+        pad = (kernel_size - 1) * dilation
+        left_pad = pad if causal else pad // 2
+
+        self.pad1 = (left_pad, 0) if causal else (pad // 2, pad - pad // 2)
+        self.pad2 = (left_pad, 0) if causal else (pad // 2, pad - pad // 2)
+
+        self.conv1 = nn.Conv1d(channels, channels, kernel_size, dilation=dilation)
+        self.conv2 = nn.Conv1d(channels, channels, kernel_size, dilation=dilation)
+        self.norm1 = nn.GroupNorm(1, channels)
+        self.norm2 = nn.GroupNorm(1, channels)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        # x: [B, C, T]
+        y = F.pad(x, self.pad1) if self.causal else F.pad(x, self.pad1, mode='constant', value=0)
+        y = self.conv1(y)
+        y = F.gelu(self.norm1(y))
+        y = self.dropout(y)
+
+        y = F.pad(y, self.pad2) if self.causal else F.pad(y, self.pad2, mode='constant', value=0)
+        y = self.conv2(y)
+        y = self.norm2(y)
+
+        return F.gelu(x + self.dropout(y))  # residual
+
+class TemporalCNN(nn.Module):
+    """
+    Temporal 1D CNN over rho (sequence length).
+    Accepts [B, T, nx] and returns [B, T, ny].
+    """
+    def __init__(
+        self,
+        nx,
+        ny,
+        hidden=64,
+        num_blocks=4,
+        kernel_size=3,
+        base_dilation=1,
+        dropout=0.1,
+        causal=False
+    ):
+        super().__init__()
+        self.input_proj = nn.Conv1d(nx, hidden, kernel_size=1)
+        blocks = []
+        for i in range(num_blocks):
+            dilation = (base_dilation ** i) if base_dilation > 1 else (2 ** i)
+            blocks.append(DilatedResBlock(hidden, kernel_size, dilation, dropout, causal))
+        self.blocks = nn.Sequential(*blocks)
+        self.output_proj = nn.Conv1d(hidden, ny, kernel_size=1)
+
+    def forward(self, x_b_t_nx):
+        # x_b_t_nx: [B, T, nx]
+        x = x_b_t_nx.transpose(1, 2)        # -> [B, nx, T]
+        x = self.input_proj(x)              # -> [B, H, T]
+        x = self.blocks(x)                  # -> [B, H, T]
+        y = self.output_proj(x)             # -> [B, ny, T]
+        return y.transpose(1, 2)
+    
+
+
+
+class TemporalConv1d(nn.Module):
+    def __init__(self, dim, hidden=128, kernel_size=3, base_dilation=1, n_blocks=3, dropout=0.1):
+        super().__init__()
+        blocks = []
+        for i in range(n_blocks):
+            dil = base_dilation * (2**i)
+            blocks += [
+                nn.Conv1d(dim, dim, kernel_size, padding=dil*(kernel_size-1)//2, dilation=dil, groups=dim),
+                nn.GELU(),
+                nn.GroupNorm(1, dim),            # <- channel norm on (N,C,T)
+                nn.Conv1d(dim, hidden, 1),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Conv1d(hidden, dim, 1),
+                nn.GroupNorm(1, dim),            # <- channel norm
+            ]
+        self.blocks = nn.ModuleList(blocks)
+
+    def forward(self, x):  # x: (B,P,T,F)
+        B, P, T, F = x.shape
+        y = x.reshape(B*P, T, F).transpose(1, 2)  # (BP, F, T)
+        k = 0
+        for _ in range(len(self.blocks)//8):
+            residual = y
+            y = self.blocks[k+0](y); y = self.blocks[k+1](y); y = self.blocks[k+2](y)
+            y = self.blocks[k+3](y); y = self.blocks[k+4](y); y = self.blocks[k+5](y)
+            y = self.blocks[k+6](y); y = self.blocks[k+7](y)
+            y = y + residual
+            k += 8
+        y = y.transpose(1, 2).reshape(B, P, T, F)  # back to (B,P,T,F)
+        return y
+
+
+
+def pairwise_relpos(latlon):  # latlon: (B, P, 2) [lat, lon] in degrees
+    # returns rel: (B, P, P, 4): [dx, dy, great_circle_dist_km, bearing_sin]
+    lat = torch.deg2rad(latlon[..., 0])
+    lon = torch.deg2rad(latlon[..., 1])
+
+    dlat = lat[:, :, None] - lat[:, None, :]
+    dlon = lon[:, :, None] - lon[:, None, :]
+
+    dx = dlon * torch.cos((lat[:, :, None] + lat[:, None, :]) / 2.0)
+    dy = dlat
+
+    # haversine distance (km)
+    a = torch.sin(dlat/2)**2 + torch.cos(lat[:, :, None]) * torch.cos(lat[:, None, :]) * torch.sin(dlon/2)**2
+    dist = 2 * 6371.0 * torch.arcsin(torch.clamp(torch.sqrt(a), 0, 1-1e-7))
+
+    bearing = torch.atan2(
+        torch.sin(dlon) * torch.cos(lat[:, None, :]),
+        torch.cos(lat[:, :, None]) * torch.sin(lat[:, None, :]) - torch.sin(lat[:, :, None]) * torch.cos(lat[:, None, :]) * torch.cos(dlon)
+    )
+    rel = torch.stack([dx, dy, dist/500.0, torch.sin(bearing)], dim=-1)  # mild scaling for dist
+    return rel  # (B, P, P, 4)
+
+class PatchSpatialAttention(nn.Module):
+    """
+    Spatial self-attention over the K+1 nodes in each patch, per time step.
+    Input:  x  (B, P, T, F)
+            pos (B, P, 2) with [lat, lon] for each node in the patch (deg)
+    Output: (B, P, T, F)
+    """
+    def __init__(self, dim, n_heads=4, ff_mult=2, dropout=0.0):
+        super().__init__()
+        self.dim = dim
+        self.h = n_heads
+        self.dk = dim // n_heads
+        assert dim % n_heads == 0
+
+        self.qkv = nn.Linear(dim, dim * 3)
+        self.out = nn.Linear(dim, dim)
+        self.ff = nn.Sequential(
+            nn.Linear(dim, ff_mult*dim),
+            nn.GELU(),
+            nn.Linear(ff_mult*dim, dim),
+        )
+        self.dropout = nn.Dropout(dropout)
+        # Rel-pos -> bias per head
+        self.relproj = nn.Linear(4, n_heads, bias=False)
+        self.norm1 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim)
+
+    def forward(self, x, pos):
+        """
+        x:   (B, P, T, F)
+        pos: (B, P, 2) lat/lon degrees for nodes in each patch
+        """
+        B, P, T, F_ = x.shape
+        x = x.permute(0, 2, 1, 3).contiguous()  # (B, T, P, F)
+        x_ = self.norm1(x)
+
+        # QKV along spatial nodes for each time slice
+        qkv = self.qkv(x_)  # (B, T, P, 3F)
+        q, k, v = qkv.chunk(3, dim=-1)
+        # reshape for heads
+        def split_heads(t):
+            return t.view(B, T, P, self.h, self.dk).permute(0,1,3,2,4)  # (B,T,H,P,dk)
+        q, k, v = map(split_heads, (q, k, v))
+
+        # scaled dot-product attention
+        attn = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.dk)  # (B,T,H,P,P)
+
+        # add relative positional bias per head
+        rel = pairwise_relpos(pos)             # (B,P,P,4)
+        rel_h = self.relproj(rel).permute(0,3,1,2)  # (B,H,P,P)
+        attn = attn + rel_h[:, None, ...]      # broadcast to (B,T,H,P,P)
+
+        attn = F.softmax(attn, dim=-1)
+        attn = self.dropout(attn)
+        out = torch.matmul(attn, v)            # (B,T,H,P,dk)
+
+        # merge heads
+        out = out.permute(0,1,3,2,4).contiguous().view(B, T, P, F_)  # (B,T,P,F)
+        out = self.out(out)
+        x = x + self.dropout(out)              # residual
+        y = self.norm2(x)
+        y = y + self.dropout(self.ff(y))       # feed-forward + residual
+        y = y.permute(0,2,1,3).contiguous()    # (B,P,T,F)
+        return y
+
+
+
 
 
 # class QuantileMappingModel(nn.Module):
@@ -428,205 +720,3 @@ class QuantileMappingModel(nn.Module):
 #         # Inverse FFT to get back to the time domain
 #         reconstructed_series = fft.ifft(freq_series, dim=-1).real
 #         return reconstructed_series
-    
-
-
-
-
-class QuantileMappingModel1(nn.Module):
-    def __init__(self, nx=1, hidden_dim=64, num_layers=2, modelType='ANN', max_degree=5):
-        super(QuantileMappingModel1, self).__init__()
-        self.max_degree = max_degree
-        self.model_type = modelType
-
-        ny = max_degree + 1  # D_max scale params + 1 shift
-
-        if modelType == 'MLP':
-            self.transform_generator = self.build_transform_generator(nx, hidden_dim, ny, num_layers)
-        elif modelType == 'FNO2d':
-            self.transform_generator = FNO2d(16, 16, hidden_dim)
-        elif modelType == 'FNO1d':
-            self.transform_generator = FNO1d(modes=16, width=hidden_dim, input_dim=nx, output_dim=ny)
-        elif modelType == 'LSTM':
-            self.lstm = nn.LSTM(input_size=nx, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True)
-            self.fc = nn.Linear(hidden_dim, ny)
-
-    def build_transform_generator(self, nx, hidden_dim, ny, num_layers):
-        layers = [
-            nn.Linear(nx, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.2)
-        ]
-        for _ in range(num_layers - 2):
-            layers += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), nn.Dropout(0.2)]
-        layers.append(nn.Linear(hidden_dim, ny))
-        return nn.Sequential(*layers)
-
-    def forward(self, x, input_tensor, time_scale):
-        if self.model_type == "LSTM":
-            lstm_out, _ = self.lstm(input_tensor)
-            params = self.fc(lstm_out)
-        else:
-            params = self.transform_generator(input_tensor)
-
-        if str(time_scale) != 'daily':
-            label_dummies = pd.get_dummies(time_scale)
-            weights_np = label_dummies.div(label_dummies.sum(axis=0), axis=1).values.astype(np.float32)
-            weights = torch.tensor(weights_np, device=params.device)  # shape (time, scale)
-            label_avg = torch.einsum('stp,tm->smp', params, weights)  # (sites, scale, params)
-            params = torch.einsum('tm,smp->stp', weights, label_avg)  # shape: (sites, time, params)
-
-        poly_weights = params[:, :, :self.max_degree]  # shape: [sites, time, D_max]
-        shift = params[:, :, -1]
-
-        # Apply learned polynomial transformation
-        powers = [x ** (i + 1) for i in range(self.max_degree)]
-        transformed_x = sum(w * p for w, p in zip(torch.unbind(poly_weights, dim=-1), powers)) + shift
-        transformed_x = torch.relu(transformed_x)
-
-        self.latest_poly_weights = poly_weights  # Store for regularization
-        
-        return transformed_x
-
-    def get_weighted_l1_penalty(self, lambda_l1=1e-4):
-        """
-        Returns the weighted L1 regularization loss for polynomial weights.
-        """
-        if not hasattr(self, 'latest_poly_weights'):
-            raise RuntimeError("Run a forward pass before calling L1 penalty.")
-
-        degree_weights = torch.arange(
-            1, self.max_degree + 1, dtype=self.latest_poly_weights.dtype, device=self.latest_poly_weights.device
-        )
-        weighted_abs = torch.abs(self.latest_poly_weights) * degree_weights
-        return lambda_l1 * torch.sum(weighted_abs)
-
-
-
-
-
-
-
-def selective_mode_polynomial_transform(
-    series: torch.Tensor,
-    poly_transform_fn,
-    low_mode_cutoff: int = 10,
-    high_mode_cutoff: int = 100
-):
-    """
-    Applies a selective transformation to different Fourier modes of a time series using a polynomial transformation.
-    
-    Args:
-        series (torch.Tensor): Input tensor of shape (batch, time)
-        poly_transform_fn (callable): A function that takes a real-valued series and returns a transformed series.
-        low_mode_cutoff (int): Frequencies below this are considered "low" and left untransformed.
-        high_mode_cutoff (int): Frequencies above this are considered "high" and transformed.
-    
-    Returns:
-        torch.Tensor: Reconstructed series after transforming selected modes.
-    """
-    # FFT (complex)
-    freq_series = fft.fft(series, dim=-1)
-
-    # Clone for modification
-    transformed_freq = freq_series.clone()
-
-    # High-frequency modes
-    high_only_freq = torch.zeros_like(freq_series)
-    high_only_freq[:, high_mode_cutoff:] = freq_series[:, high_mode_cutoff:]
-
-    # Inverse FFT to real domain of just the high modes
-    high_only_series = fft.ifft(high_only_freq, dim=-1).real
-
-    # Apply polynomial transformation in time domain
-    transformed_high = poly_transform_fn(high_only_series)
-
-    # FFT of transformed high part
-    transformed_high_freq = fft.fft(transformed_high, dim=-1)
-
-    # Replace high-frequency components
-    transformed_freq[:, high_mode_cutoff:] = transformed_high_freq[:, high_mode_cutoff:]
-
-    # Inverse FFT to return to time domain
-    reconstructed = fft.ifft(transformed_freq, dim=-1).real
-
-    return reconstructed
-
-
-
-### class of diffusion model
-class DiffusionModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
-        super(DiffusionModel, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, output_dim)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        x = self.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-
-class DilatedResBlock(nn.Module):
-    def __init__(self, channels, kernel_size=3, dilation=1, dropout=0.1, causal=False):
-        super().__init__()
-        self.causal = causal
-        pad = (kernel_size - 1) * dilation
-        left_pad = pad if causal else pad // 2
-
-        self.pad1 = (left_pad, 0) if causal else (pad // 2, pad - pad // 2)
-        self.pad2 = (left_pad, 0) if causal else (pad // 2, pad - pad // 2)
-
-        self.conv1 = nn.Conv1d(channels, channels, kernel_size, dilation=dilation)
-        self.conv2 = nn.Conv1d(channels, channels, kernel_size, dilation=dilation)
-        self.norm1 = nn.GroupNorm(1, channels)
-        self.norm2 = nn.GroupNorm(1, channels)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        # x: [B, C, T]
-        y = F.pad(x, self.pad1) if self.causal else F.pad(x, self.pad1, mode='constant', value=0)
-        y = self.conv1(y)
-        y = F.gelu(self.norm1(y))
-        y = self.dropout(y)
-
-        y = F.pad(y, self.pad2) if self.causal else F.pad(y, self.pad2, mode='constant', value=0)
-        y = self.conv2(y)
-        y = self.norm2(y)
-
-        return F.gelu(x + self.dropout(y))  # residual
-
-class TemporalCNN(nn.Module):
-    """
-    Temporal 1D CNN over rho (sequence length).
-    Accepts [B, T, nx] and returns [B, T, ny].
-    """
-    def __init__(
-        self,
-        nx,
-        ny,
-        hidden=64,
-        num_blocks=4,
-        kernel_size=3,
-        base_dilation=1,
-        dropout=0.1,
-        causal=False
-    ):
-        super().__init__()
-        self.input_proj = nn.Conv1d(nx, hidden, kernel_size=1)
-        blocks = []
-        for i in range(num_blocks):
-            dilation = (base_dilation ** i) if base_dilation > 1 else (2 ** i)
-            blocks.append(DilatedResBlock(hidden, kernel_size, dilation, dropout, causal))
-        self.blocks = nn.Sequential(*blocks)
-        self.output_proj = nn.Conv1d(hidden, ny, kernel_size=1)
-
-    def forward(self, x_b_t_nx):
-        # x_b_t_nx: [B, T, nx]
-        x = x_b_t_nx.transpose(1, 2)        # -> [B, nx, T]
-        x = self.input_proj(x)              # -> [B, H, T]
-        x = self.blocks(x)                  # -> [B, H, T]
-        y = self.output_proj(x)             # -> [B, ny, T]
-        return y.transpose(1, 2)

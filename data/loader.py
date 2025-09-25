@@ -7,6 +7,8 @@ import data.valid_crd as valid_crd
 import data.process as process  # Corrected import
 from data.helper import UnitManager
 import numpy as np
+from sklearn.neighbors import NearestNeighbors, BallTree
+from torch.utils.data import Dataset
 
 ### Some limitations: 
 # Loyal to CONUS region, eg files named clipped_US
@@ -225,10 +227,23 @@ class DataLoaderWrapper:
             attr_norm[torch.isnan(attr_norm)] = 0.0  
             attr_norm_tensor = attr_norm.unsqueeze(0).expand(series_norm.shape[0], -1, -1)
 
-            return torch.cat((series_norm, attr_norm_tensor), dim=2).permute(1, 0, 2)
-        
+            final_norm_tensor = torch.cat((series_norm, attr_norm_tensor), dim=2).permute(1, 0, 2)
+
+
         else:
-            return series_norm.permute(1, 0, 2)
+            final_norm_tensor = series_norm.permute(1, 0, 2)
+
+
+        if self.autoregression:
+            final_norm_tensor = self.build_autoregressive_dataset(norm_input=final_norm_tensor, k=self.lag)
+
+
+        if self.wet_dry_flag:
+            x = self.x_data.squeeze().T
+            final_norm_tensor = self.add_wet_dry_flag(final_norm_tensor, x)
+
+        return final_norm_tensor
+
 
     def get_dataloader(self):
         """Returns a PyTorch DataLoader."""
@@ -237,16 +252,11 @@ class DataLoaderWrapper:
 
         norm_input = self.input_norm_tensor
 
-        if self.autoregression:
-            norm_input = self.build_autoregressive_dataset(norm_input=norm_input, k=self.lag)
-
         if self.chunk:
             norm_input, y, x = self.chunk_sequence(norm_input, x, y, chunk_size=self.chunk_size, stride=self.stride)
+        
 
-        if self.wet_dry_flag:
-            norm_input = self.add_wet_dry_flag(norm_input, x)
-
-        dataset = TensorDataset(norm_input, x, y)
+        dataset = TensorDataset(None, norm_input, x, y)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
     
     
@@ -255,16 +265,10 @@ class DataLoaderWrapper:
         x = self.x_data.squeeze().T
         norm_input = self.input_norm_tensor
 
-        if self.autoregression:
-            norm_input = self.build_autoregressive_dataset(norm_input=norm_input, k=self.lag)
-
         if self.chunk:
             norm_input, y, x = self.chunk_sequence(norm_input, x, None, chunk_size=self.chunk_size, stride=self.stride)
 
-        if self.wet_dry_flag:
-            norm_input = self.add_wet_dry_flag(norm_input, x)
-
-        dataset = TensorDataset(norm_input, x)
+        dataset = TensorDataset(None, norm_input, x)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
     
     def build_autoregressive_dataset(self, norm_input, k, tv_idx=0, static_idxs=[1, 2, 3, 4]):
@@ -334,3 +338,217 @@ class DataLoaderWrapper:
         """
         wet_dry_flag = (x > threshold).float().unsqueeze(-1)
         return torch.cat([input_tensor, wet_dry_flag], dim=-1)
+
+    # ---------------- Spatial Dataset / DataLoader for patches ----------------
+    class SpatialPatchDataset(Dataset):
+        """
+        Dataset that yields (patch_indices, patch_input, patch_x, patch_y?) where
+        patch_input shape = (patch_size, time, features)
+        patch_x shape = (patch_size, time)
+        patch_y shape = (patch_size, time) if available
+        """
+        def __init__(self, wrapper, patches):
+            self.wrapper = wrapper
+            # patches: list/array of shape (num_patches, patch_size)
+            self.patches = np.asarray(patches, dtype=int)
+
+        def __len__(self):
+            return self.patches.shape[0]
+
+        def __getitem__(self, idx):
+            patch = self.patches[idx]  # (patch_size,)
+            # gather from wrapper tensors
+            inp = self.wrapper.input_norm_tensor[patch]  # (patch_size, time, features)
+            x = self.wrapper.x_data.squeeze().T[patch]   # (patch_size, time)
+            if hasattr(self.wrapper, 'y_data'):
+                y = self.wrapper.y_data.squeeze().T[patch]
+                return patch, inp, x, y
+            return patch, inp, x
+
+    # Dataset over SINGLE rows now
+    class _RowDataset(Dataset):
+        def __init__(self, wrapper, rows):
+            self.w = wrapper
+            self.rows = rows
+        def __len__(self):
+            return self.rows.shape[0]
+        def __getitem__(self, idx):
+            patch = self.rows[idx]                              # (K+1,)
+            inp = self.w.input_norm_tensor[patch]               # (K+1, time, feat)
+            x   = self.w.x_data.squeeze().T[patch]              # (K+1, time)
+            if hasattr(self.w, 'y_data'):
+                y = self.w.y_data.squeeze().T[patch]            # (K+1, time)
+                return patch, inp, x, y
+            return patch, inp, x
+
+    def get_spatial_dataloader(self, M=100, K=16, 
+                            batch_per_epoch=None, neighbors=None, use_haversine=False, 
+                            shuffle=True, seed=None, num_workers=0, chunk=False, chunk_size=365, stride=90):
+        chunk = self.chunk
+        chunk_size = self.chunk_size
+        stride = self.stride
+
+        M = self.batch_size
+        N = self.valid_coords.shape[0]
+        if neighbors is None:
+            neigh, _ = self.precompute_neighbors(val_crd=self.valid_coords, n_neighbors=K, use_haversine=use_haversine)
+        else:
+            neigh = np.asarray(neighbors)
+
+        if batch_per_epoch is None:
+            batch_per_epoch = max(1, N // M)
+
+        rng = np.random.default_rng(seed)
+        # Build ALL rows (each row = one patch of indices length K+1)
+        rows = []
+        for _ in range(batch_per_epoch):
+            centers = rng.choice(N, size=M, replace=False)
+            for c in centers:
+                row = np.empty((K + 1,), dtype=int)
+                row[0] = c
+                row[1:] = neigh[c]
+                rows.append(row)
+        rows = np.asarray(rows, dtype=int)  # shape: (batch_per_epoch*M, K+1) 
+
+        ds = DataLoaderWrapper._RowDataset(self, rows)
+
+        def collate_fn(batch):
+            # batch is a list of items; each item is one patch row
+
+            patches_np = np.stack([b[0] for b in batch], axis=0)  # (B, K+1) numpy
+            patches    = torch.from_numpy(patches_np).long()      # (B, K+1) torch (CPU)
+            inps    = torch.stack([b[1] for b in batch], dim=0)              # (B, K+1, T, F)
+            xs      = torch.stack([b[2] for b in batch], dim=0)              # (B, K+1, T)
+            if len(batch[0]) == 4:
+                ys  = torch.stack([b[3] for b in batch], dim=0)              # (B, K+1, T)
+            # Apply chunking if requested
+            if self.chunk:
+                B, P_, T = inps.shape[0], inps.shape[1], inps.shape[2]
+                L, S = self.chunk_size, self.stride
+                if T >= L:
+                    starts = list(range(0, T - L + 1, S))
+                    if (T - L) % S != 0:
+                        starts.append(T - L)
+
+                    inps_chunks, xs_chunks = [], []
+                    ys_chunks = [] if len(batch[0]) == 4 else None
+                    for t0 in starts:
+                        t1 = t0 + L
+                        inps_chunks.append(inps[:, :, t0:t1, :])   # (B,P,L,F)
+                        xs_chunks.append(xs[:, :, t0:t1])         # (B,P,L)
+                        if ys_chunks is not None:
+                            ys_chunks.append(ys[:, :, t0:t1])     # (B,P,L)
+
+                    inps = torch.cat(inps_chunks, dim=0)          # (B*n_chunks,P,L,F)
+                    xs   = torch.cat(xs_chunks,   dim=0)          # (B*n_chunks,P,L)
+                    if ys_chunks is not None:
+                        ys = torch.cat(ys_chunks, dim=0)          # (B*n_chunks,P,L)
+                    n_chunks = len(starts)
+                    patches  = patches.repeat(n_chunks, 1) 
+    
+            if len(batch[0]) == 4:
+                return patches, inps, xs, ys
+            return patches, inps, xs
+
+        # Now use batch_size=M to form a batch of M patch-rows
+        return DataLoader(ds, batch_size=M, shuffle=shuffle, collate_fn=collate_fn, num_workers=num_workers)
+
+    def precompute_neighbors(self, val_crd=None, n_neighbors=16, use_haversine=False):
+        """
+        Precompute neighbor indices for all valid coordinates.
+
+        Returns:
+            neighbors: (N, n_neighbors) int array of neighbor indices (excluding self)
+            distances: (N, n_neighbors) array of distances
+        """
+        if val_crd is None:
+            val_crd = self.valid_coords
+
+        val_crd = np.asarray(val_crd)
+        if use_haversine:
+            coords_rad = np.deg2rad(val_crd)
+            tree = BallTree(coords_rad, metric='haversine')
+            dist, idx = tree.query(coords_rad, k=n_neighbors + 1)
+            dist_m = dist * 6371000.0
+            neighbors = idx[:, 1:]
+            distances = dist_m[:, 1:]
+        else:
+            nbrs = NearestNeighbors(n_neighbors=n_neighbors + 1).fit(val_crd)
+            dist, idx = nbrs.kneighbors(val_crd)
+            neighbors = idx[:, 1:]
+            distances = dist[:, 1:]
+
+        return neighbors, distances
+
+    def reconstruct_from_patches(self, patches_batch, outputs, mode='mean', N=None):
+        """
+        Reconstruct per-location outputs from a batch (or list of batches) of patches.
+
+        Args:
+            patches_batch: array-like or tensor of shape (B, P) where each row contains indices into the
+                           original locations (P = patch_size = K+1).
+            outputs: torch.Tensor with shape either (B, P, ...) or (B*P, ...). The trailing dims are the
+                     output feature dims produced by your model for each patch element.
+            mode: 'mean' (default), 'sum', or 'first' to aggregate multiple contributions to the same location.
+            N: total number of locations (defaults to number of valid coords)
+
+        Returns:
+            reconstructed: tensor of shape (N, ...) with aggregated outputs for each original location.
+            counts: tensor of shape (N,) with how many times each location was present in the patches.
+        """
+
+        if N is None:
+            N = int(self.valid_coords.shape[0])
+
+        # Normalize patches to numpy array (B, P)
+        if isinstance(patches_batch, torch.Tensor):
+            patches_np = patches_batch.cpu().numpy()
+        else:
+            patches_np = np.asarray(patches_batch)
+        
+        patches_np = patches_np.reshape(-1, *patches_np.shape[2:])
+
+        if patches_np.ndim != 2:
+            raise ValueError("patches_batch must have shape (B, P)")
+
+        B, P = patches_np.shape
+
+   
+
+        out = np.asarray(outputs)
+        out = out.reshape(-1, *out.shape[2:])
+       
+
+        feat_shape = out.shape[2:]
+
+        reconstructed = torch.zeros(N, *feat_shape)
+        counts = torch.zeros((N,), dtype=int)
+
+        # Aggregate
+        for b in range(B):
+            for p in range(P):
+                idx = int(patches_np[b, p])
+                reconstructed[idx] += out[b, p]
+                counts[idx] += 1
+
+        if mode == 'mean':
+            counts_f = counts.clamp(min=1).to(dtype=reconstructed.dtype)
+            # expand counts to match reconstructed trailing dims
+            expand_shape = [ -1 ] + [1] * (reconstructed.dim() - 1)
+            reconstructed = reconstructed / counts_f.view(*expand_shape)
+        elif mode == 'first':
+            recon_first = torch.zeros_like(reconstructed)
+            seen = torch.zeros((N,), dtype=bool)
+            for b in range(B):
+                for p in range(P):
+                    idx = int(patches_np[b, p])
+                    if not seen[idx]:
+                        recon_first[idx] = out[b, p]
+                        seen[idx] = True
+            reconstructed = recon_first
+        elif mode == 'sum':
+            pass
+        else:
+            raise ValueError(f"Unknown mode {mode}")
+
+        return reconstructed

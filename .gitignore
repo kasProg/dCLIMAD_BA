@@ -41,6 +41,7 @@ analysis_ensemble1.ipynb
 analysis_ensemble2.ipynb
 temp*
 jobs_CNN
+runs_CNN
 outputs
 auto_select_demo
 demo_best.json
