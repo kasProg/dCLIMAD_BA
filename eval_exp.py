@@ -37,10 +37,21 @@ parser = argparse.ArgumentParser(description="Evaluate experiment")
 parser.add_argument('--run_id', type=str, required=True, help='Run ID')
 parser.add_argument('--testepoch', type=int, required=True, help='Test epoch')
 parser.add_argument('--base_dir', type=str, required=True, help='Base directory for outputs')
+parser.add_argument('--validation', action='store_true')
+
+## add argument for test period list
+parser.add_argument('--test_period', type=str, required=False, help='Test period, format: start_year,end_year')
+
 args = parser.parse_args()
+
+if args.test_period:
+    args.test_period = [int(x) for x in args.test_period.split(',')]
+    test_period= args.test_period
+
 
 run_id = args.run_id
 testepoch = args.testepoch
+validation = args.validation
 base_dir = args.base_dir
 
 run_path = helper.load_run_path(run_id, base_dir=base_dir)
@@ -48,8 +59,14 @@ run_path = helper.load_run_path(run_id, base_dir=base_dir)
 with open(os.path.join(run_path, 'train_config.yaml'), 'r') as f:
     config = yaml.safe_load(f)
 
-
 logging = True
+
+if validation:
+    test_period = [config['val_start'], config['val_end']]
+
+
+
+
 cmip6_dir = config['cmip_dir']
 ref_path = config['ref_dir']
 
@@ -73,18 +90,15 @@ scenario = config['scenario']
 trend_future_period = [config['trend_start'], config['trend_end']]
 
 
-try:
-    test_period = [config['test_start'], config['test_end']]
-except KeyError:
-    print("⚠️  'test_start' not found. Falling back to 'val_start' and 'val_end'.")
-    test_period = [config['val_start'], config['val_end']]
+
 
 train_period = [config['train_start'], config['train_end']]
 benchmarking = config['benchmarking']
 
 
 # model params
-model_type = config['model_type'] #[SST, Poly2]
+transform_type = config['transform_type'] #[SST, Poly2]
+temp_enc = config['temp_enc']
 degree = config['degree'] # degree of transformation
 layers = config['layers'] #number of layers to ANN
 time_scale = config['time_scale'] #choose from [daily, month, year-month, julian-day, season]
@@ -97,6 +111,7 @@ wet_dry_flag = config['wet_dry_flag']
 pca_mode = config['pca_mode']
 logging_path = config['logging_path']
 hidden_size = config['hidden_size']
+neighbors = config['neighbors'] if 'neighbors' in config else 16
 
 
 # ny = 4 # number of params
@@ -113,7 +128,7 @@ shapefile_filter_path =  None if not spatial_test  else config['shapefile_filter
 # shape_file_filter = '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
 
 if logging:
-    exp = f'{logging_path}/{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
+    exp = f'{logging_path}/{clim}-{ref}/{transform_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{test_period[0]}_{test_period[1]}'
     writer = SummaryWriter(f"runs_revised/{exp}")
 
 
@@ -134,7 +149,7 @@ data_loader = DataLoaderWrapper(
     crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression, 
     lag=lag, wet_dry_flag=wet_dry_flag, device=device)
 
-dataloader = data_loader.get_spatial_dataloader()
+dataloader = data_loader.get_spatial_dataloader(K=neighbors)
 valid_coords = data_loader.get_valid_coords()
 
 if not trend_analysis:
@@ -146,7 +161,7 @@ if not trend_analysis:
     crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression,lag=lag,
     wet_dry_flag=wet_dry_flag, device=device)
 
-    dataloader_future = data_loader_future.get_dataloader_future()
+    dataloader_future = data_loader_future.get_dataloader_future(K=neighbors)
 
 valid_coords = data_loader.get_valid_coords()
 _, time_x = data_loader.load_dynamic_inputs()
@@ -164,10 +179,10 @@ else:
     time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
     time_labels_future = helper.extract_time_labels(data_loader_future.load_dynamic_inputs()[1], label_type=time_scale) if trend_analysis else None
 
-# model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode).to(device)
-model = SpatioTemporalQM(f_in=nx, f_model=hidden_size, heads=2, t_blocks=2, st_layers=1, degree=degree, dropout=0.1).to(device)
+# model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=transform_type, pca_mode=pca_mode).to(device)
+model = SpatioTemporalQM(f_in=nx, f_model=hidden_size, heads=2, t_blocks=layers, st_layers=1, degree=degree, dropout=0.1, transform_type=transform_type, temp_enc=temp_enc).to(device)
 
-# model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type).to(device)
+# model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=transform_type).to(device)
 
     
 

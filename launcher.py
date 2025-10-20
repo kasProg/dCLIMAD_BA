@@ -33,7 +33,7 @@ print(f"Total jobs: {len(param_combinations)}")
 if config['fixed']['train']:
     run_file = "run_exp.py"
 else:
-    run_file = "test_exp.py"
+    run_file = "run_val.py"
 
 def launch_job(params, gpu_id, run_file):
     command = ["python", run_file]

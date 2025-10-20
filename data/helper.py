@@ -264,8 +264,12 @@ def generate_run_id(args_dict):
 
 def load_run_path(run_id, base_dir='/pscratch/sd/k/kas7897/diffDownscale/jobs/'):
     # Find path for run_id
-    pattern = os.path.join(base_dir, '*','*', f'*{run_id}*')  # Wildcard to match structure
-    matching_dirs = glob.glob(pattern)
+    # pattern = os.path.join(base_dir, '*','*', f'*{run_id}*')  # Wildcard to match structure
+    # matching_dirs = glob.glob(pattern)
+
+    # Recursively search for any directory containing run_id in its name
+    pattern = os.path.join(base_dir, '**', f'*{run_id}*')
+    matching_dirs = [d for d in glob.glob(pattern, recursive=True) if os.path.isdir(d)]
     
     if not matching_dirs:
         raise FileNotFoundError(f"No directory found for run_id {run_id}")

@@ -13,9 +13,6 @@ import pandas as pd
 import numpy as np
 import torch.fft as fft
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 
 class MonotoneMap1D(nn.Module):
@@ -56,15 +53,26 @@ class MonotoneMap1D(nn.Module):
         y = alpha * x + (w * bumps).sum(dim=-1) + c
         return y
 
-
+# Build the generator(s)
+def build_transform_generator(nx, hidden_dim, ny, num_layers):
+    layers = []
+    layers.append(nn.Linear(nx, hidden_dim))
+    layers.append(nn.ReLU())
+    layers.append(nn.Dropout(0.2))
+    for _ in range(num_layers - 2):
+        layers.append(nn.Linear(hidden_dim, hidden_dim))
+        layers.append(nn.ReLU())
+        layers.append(nn.Dropout(0.2))
+    layers.append(nn.Linear(hidden_dim, ny))
+    return nn.Sequential(*layers)
 
 
 class SpatioTemporalQM(nn.Module):
-    def __init__(self, f_in, f_model=64, heads=4, t_blocks=3, st_layers=2, degree=8, dropout=0.1, transform_type='monotone'):
+    def __init__(self, f_in, f_model=64, heads=4, t_blocks=3, st_layers=2, degree=8, dropout=0.1, transform_type='monotone', temp_enc='Conv1d'):
         super().__init__()
         self.embed = nn.Linear(f_in, f_model)
         self.stacks = nn.ModuleList([STBlock(f_model, heads=heads, t_hidden=2*f_model,
-                                             t_blocks=t_blocks, dropout=dropout) for _ in range(st_layers)])
+                                             t_blocks=t_blocks, dropout=dropout, tempModel=temp_enc) for _ in range(st_layers)])
         self.transform_type = transform_type
         if self.transform_type == 'monotone':
             self.to_params = nn.Linear(f_model, 2 + 3 * degree)  # alpha, c, (w_k, s_k, b_k) for k=1..K
@@ -93,16 +101,51 @@ class STBlock(nn.Module):
     Interleaved Spatio-Temporal Block:
       x -> TemporalConv1d -> SpatialAttention -> (residuals + norm)
     """
-    def __init__(self, dim, heads=4, t_hidden=128, t_blocks=3, dropout=0.1):
+    def __init__(self, dim, heads=4, t_hidden=128, t_blocks=3, dropout=0.1, tempModel='Conv1d'):
         super().__init__()
-        self.tenc = TemporalConv1d(dim, hidden=t_hidden, n_blocks=t_blocks, dropout=dropout)
+
+        self.tempModel = tempModel
+        if self.tempModel == 'Conv1d':
+            self.tenc = TemporalConv1d(dim, hidden=t_hidden, n_blocks=t_blocks, dropout=dropout)
+        elif self.tempModel == 'LSTM':
+            self.tenc = nn.LSTM(input_size=dim, hidden_size=dim, num_layers=t_blocks, dropout=dropout, batch_first=True)
+        elif self.tempModel == 'MLP':
+            self.tenc = build_transform_generator(dim, t_hidden, dim, t_blocks)
+        elif self.tempModel == 'MLP+LSTM':
+            self.tenc_mlp = build_transform_generator(dim, t_hidden, dim, t_blocks)
+            self.tenc_lstm = nn.LSTM(input_size=dim, hidden_size=dim, num_layers=t_blocks, dropout=dropout, batch_first=True)
+        elif self.tempModel == 'Transformer':
+            self.tenc = TemporalSelfAttention(dim, heads=heads, ff_mult=2, dropout=dropout, causal=False)
+        elif self.tempModel == 'Conv1d+MLP':
+            self.tenc_conv = TemporalConv1d(dim, hidden=t_hidden, n_blocks=t_blocks, dropout=dropout)
+            self.tenc_mlp = build_transform_generator(dim, t_hidden, dim, t_blocks)
+        else:
+            raise ValueError(f"Unknown tempModel type: {self.tempModel}")
+        
         self.sattn = PatchSpatialAttention(dim, n_heads=heads, ff_mult=2, dropout=dropout)
-        self.lstm = nn.LSTM(input_size=dim, hidden_size=dim, num_layers=t_blocks, batch_first=True)
         self.n1 = nn.LayerNorm(dim)
         self.n2 = nn.LayerNorm(dim)
 
     def forward(self, x, pos):            # x: (B,P,T,F); pos: (B,P,2)
-        y = self.tenc(self.n1(x)) + x     # temporal residual
+        B, P, T, F_ = x.size()
+        if self.tempModel in ['LSTM', 'MLP', 'MLP+LSTM', 'Transformer', 'Conv1d+MLP']:
+            x_ = x.view(B * P, T, F_) # (BP,T,F)
+            if self.tempModel == 'LSTM':
+                y_ = self.tenc(x_)[0] + x_  # (BP,T,F)
+            elif self.tempModel == 'MLP':
+                y_ = self.tenc(self.n1(x_)) + x_ # (BP,T,F)
+            elif self.tempModel == 'MLP+LSTM':
+                y_ = self.tenc_mlp(self.n1(x_)) + x_
+                y_ = self.tenc_lstm(y_)[0] + y_
+            elif self.tempModel == 'Transformer':
+                y_ = self.tenc(self.n1(x_)) + x_
+            elif self.tempModel == 'Conv1d+MLP':
+                y_ = self.tenc_conv(self.n1(x_.view(B, P, T, F_))).view(B*P, T, F_) + x_
+                y_ = self.tenc_mlp(self.n1(y_)) + y_
+            y = y_.view(B, P, T, F_)  # (B,P,T,F)
+        else:
+            y = self.tenc(self.n1(x)) + x     # temporal residual
+       
         z = self.sattn(self.n2(y), pos)   # spatial attn (already residual inside)
         return z
 
@@ -124,18 +167,7 @@ class QuantileMappingModel(nn.Module):
             # your original: degree scales + 1 shift
             self.ny = degree + 1
 
-        # Build the generator(s)
-        def build_transform_generator(nx, hidden_dim, ny, num_layers):
-            layers = []
-            layers.append(nn.Linear(nx, hidden_dim))
-            layers.append(nn.ReLU())
-            layers.append(nn.Dropout(0.2))
-            for _ in range(num_layers - 2):
-                layers.append(nn.Linear(hidden_dim, hidden_dim))
-                layers.append(nn.ReLU())
-                layers.append(nn.Dropout(0.2))
-            layers.append(nn.Linear(hidden_dim, ny))
-            return nn.Sequential(*layers)
+        
 
         # MLP
         if num_layers == 0:
@@ -492,6 +524,7 @@ class PatchSpatialAttention(nn.Module):
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
 
+
     def forward(self, x, pos):
         """
         x:   (B, P, T, F)
@@ -530,6 +563,73 @@ class PatchSpatialAttention(nn.Module):
         y = y.permute(0,2,1,3).contiguous()    # (B,P,T,F)
         return y
 
+
+class TemporalSelfAttention(nn.Module):
+    """
+    Temporal Transformer block (per patch):
+      Input:  (B*P, T, F)
+      Output: (B*P, T, F)
+    """
+    def __init__(self, dim, heads=4, ff_mult=2, dropout=0.1, causal=False, max_T=6000):
+        super().__init__()
+        self.dim = dim
+        self.heads = heads
+        self.dropout = dropout
+        self.causal = causal
+
+        # Learned positional embeddings over time steps
+        # self.pos_emb = nn.Embedding(max_T, dim)
+
+        self.ln1 = nn.LayerNorm(dim)
+        self.attn = nn.MultiheadAttention(embed_dim=dim, num_heads=heads,
+                                          dropout=dropout, batch_first=True)
+        self.ln2 = nn.LayerNorm(dim)
+        self.ff = nn.Sequential(
+            nn.Linear(dim, ff_mult * dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(ff_mult * dim, dim),
+            nn.Dropout(dropout),
+        )
+
+    @staticmethod
+    def sinusoidal_pos_emb(T, dim, device='cpu'):
+        """
+        Returns sinusoidal positional encodings (T, dim)
+        for positions [0, T-1].
+        """
+        pos = torch.arange(T, device=device).unsqueeze(1)           # (T, 1)
+        i = torch.arange(dim // 2, device=device).unsqueeze(0)      # (1, dim/2)
+        denom = torch.pow(10000, (2 * i) / dim)
+        angles = pos / denom                                        # (T, dim/2)
+        pe = torch.zeros(T, dim, device=device)
+        pe[:, 0::2] = torch.sin(angles)
+        pe[:, 1::2] = torch.cos(angles)
+        return pe
+
+    def _causal_mask(self, T, device):
+        # [T, T] upper-triangular mask: True = mask out
+        return torch.triu(torch.ones(T, T, dtype=torch.bool, device=device), diagonal=1)
+
+    def forward(self, x):  # x: (B*P, T, F)
+        BP, T, F = x.shape
+        # pos_ids = torch.arange(T, device=x.device)
+        # x = x + self.pos_emb(pos_ids)[None, :, :]  # broadcast over batch
+        x = x + self.sinusoidal_pos_emb(T, F, x.device)
+
+        # Pre-norm
+        h = self.ln1(x)
+
+        attn_mask = self._causal_mask(T, x.device) if self.causal else None
+        # Self-attention
+        y, _ = self.attn(h, h, h, attn_mask=attn_mask, need_weights=False)
+        y = y + x  # residual
+
+        # FFN
+        z = self.ln2(y)
+        z = self.ff(z)
+        z = z + y  # residual
+        return z
 
 
 

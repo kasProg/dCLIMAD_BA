@@ -14,6 +14,7 @@ import datetime
 import os
 from eval.metrics import *
 import json
+import glob
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
@@ -31,7 +32,8 @@ parser.add_argument('--save_path', type=str)
 parser.add_argument('--input_attrs', type=str, help="Semicolon-separated list of input attributes")
 parser.add_argument('--train', action='store_true')
 parser.add_argument('--validation', action='store_true')
-parser.add_argument('--model_type', type=str, default='ANN')
+parser.add_argument('--transform_type', type=str, default='monotone')
+parser.add_argument('--temp_enc', type=str, default='Conv1D')
 parser.add_argument('--degree', type=int, default=1)
 parser.add_argument('--layers', type=int, default=4)
 parser.add_argument('--time_scale', type=str, default='seasonal')
@@ -58,6 +60,7 @@ parser.add_argument('--hidden_size', type=int, default=64)
 parser.add_argument('--chunk', action='store_true')
 parser.add_argument('--chunk_size', type=int, default=365)
 parser.add_argument('--stride', type=int, default=60)
+parser.add_argument('--neighbors', type=int, default=16)
 parser.add_argument('--loss', nargs='+', type=str, default=None)
 parser.add_argument('--wet_dry_flag', action='store_true')
 parser.add_argument('--pca_mode', action='store_true')
@@ -96,7 +99,8 @@ testepoch = args.testepoch
 benchmarking = args.benchmarking
 
 # model params
-model_type = args.model_type
+transform_type = args.transform_type
+temp_enc = args.temp_enc
 batch_size = args.batch_size
 degree = args.degree
 layers = args.layers
@@ -112,6 +116,7 @@ pca_mode = args.pca_mode
 learning_rate = args.learning_rate
 monotone = args.monotone
 
+neighbors = args.neighbors if 'neighbors' in args else 16
 
 
 ## For Spatial Test
@@ -135,7 +140,7 @@ input_attrs = args.input_attrs.split(';')
 ####------------FIXED INPUTS------------####
 
 
-input_x = {'precipitation': ['pr', 'prec', 'prcp' 'PRCP', 'precipitation']}
+input_x = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
 clim_var = 'pr'
 
 ## loss params
@@ -155,11 +160,11 @@ else:
         raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
 if logging:
-    exp = f'{clim}-{ref}/{model_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
+    exp = f'{clim}-{ref}/{transform_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
     writer = SummaryWriter(f"{logging_path_address}/{exp}")
 
 
-save_path = f'{save_path_address}/{clim}-{ref}/QM_{model_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
+save_path = f'{save_path_address}/{clim}-{ref}/QM_{transform_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
 model_save_path = save_path
 if validation:
     val_save_path =  save_path + f'{val_period[0]}_{val_period[1]}/'
@@ -178,7 +183,7 @@ data_loader = DataLoaderWrapper(
     crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
     chunk=chunk, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, device=device)
 
-dataloader = data_loader.get_spatial_dataloader()
+dataloader = data_loader.get_spatial_dataloader(K=neighbors)
 
 valid_coords = data_loader.get_valid_coords()
 
@@ -189,7 +194,7 @@ if validation:
     crd=spatial_extent_val, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
     chunk=False, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, device=device)
 
-    dataloader_val = data_loader_val.get_spatial_dataloader()
+    dataloader_val = data_loader_val.get_spatial_dataloader(K=neighbors)
 
 
 if time_scale == 'daily':
@@ -206,10 +211,21 @@ if autoregression:
 if wet_dry_flag:
     nx += 1  # Adding wet/dry flag as an additional feature
 
-# model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=model_type, pca_mode=pca_mode,
+# model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=transform_type, pca_mode=pca_mode,
 #                               monotone=monotone).to(device)
-model = SpatioTemporalQM(f_in=nx, f_model=hidden_size, heads=2, t_blocks=2, st_layers=1, degree=degree, dropout=0.1, transform_type=model_type).to(device)
+model = SpatioTemporalQM(f_in=nx, f_model=hidden_size, heads=2, t_blocks=layers, st_layers=1, degree=degree, dropout=0.1, transform_type=transform_type, temp_enc=temp_enc).to(device)
 
+# --- Resume training if checkpoint exists ---
+start_epoch = 0
+latest_ckpt = None
+
+ckpt_files = sorted(glob.glob(f"{save_path}/model_*.pth"), key=os.path.getmtime)
+if ckpt_files:
+    latest_ckpt = ckpt_files[-1]
+    # Extract epoch number from filename
+    start_epoch = int(os.path.basename(latest_ckpt).split('_')[1].split('.')[0])
+    print(f"Resuming from checkpoint: {latest_ckpt}, epoch {start_epoch}")
+    model.load_state_dict(torch.load(latest_ckpt, map_location=device))
     
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 # optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -219,7 +235,7 @@ balance_loss = 0  # Adjust this weight to balance between distributional and rai
 # Training loop
 num_epochs = epochs
 loss_list = []
-for epoch in range(num_epochs+1):
+for epoch in range(start_epoch + 1, num_epochs + 1):
     model.train()
     epoch_loss = 0
     
@@ -235,7 +251,6 @@ for epoch in range(num_epochs+1):
         batch_input_norm = batch_input_norm.to(device)
         batch_x = batch_x.to(device)
         batch_y = batch_y.to(device)
-
         # Forward pass
         # transformed_x, _ = model(batch_x, batch_input_norm, time_scale=time_labels)
         transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x)
@@ -308,6 +323,10 @@ for epoch in range(num_epochs+1):
 
     if logging:
         writer.add_scalar("Loss/train", avg_epoch_loss, epoch)
+        writer.add_scalar("Loss1/train", avg_epoch_loss1, epoch)
+        writer.add_scalar("Loss2/train", avg_epoch_loss2, epoch)
+        writer.add_scalar("Loss3/train", avg_epoch_loss3, epoch)
+
     loss_list.append(avg_epoch_loss)
 
     if epoch % 10 == 0:
@@ -330,7 +349,6 @@ for epoch in range(num_epochs+1):
                     batch_input_norm = batch_input_norm.to(device)
                     batch_x = batch_x.to(device)
                     batch_y = batch_y.to(device)
-
                     # transformed_x, _ = model(batch_x, batch_input_norm, time_labels_val)
 
                     transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x)
@@ -407,7 +425,7 @@ for epoch in range(num_epochs+1):
             mean_bias_percentages = dict(filter(lambda item: item[0] in keys_mean , mean_bias_percentages.items()))
 
             row = {"epoch": int(epoch), "loss": float(avg_val_loss), "metrics": {k: float(np.nanmedian(v[1])) for k, v in mean_bias_percentages.items()}}
-            with open(f"{save_path}/val_metrics.jsonl", "a") as f:
+            with open(f"{val_save_path}/val_metrics.jsonl", "a") as f:
                 f.write(json.dumps(row) + "\n")
             
             if not os.path.exists(f"{save_path_address}/{clim}-{ref}/baseline.jsonl"):
