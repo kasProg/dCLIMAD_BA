@@ -87,7 +87,9 @@ input_attrs = config['input_attrs'].split(';')
 ### FOR TREND ANALYSIS
 trend_analysis = config['trend_analysis']
 scenario = config['scenario']
-trend_future_period = [config['trend_start'], config['trend_end']]
+# trend_future_period = [config['trend_start'], config['trend_end']]
+trend_future_period = [2015, 2099]
+
 
 
 
@@ -152,7 +154,7 @@ data_loader = DataLoaderWrapper(
 dataloader = data_loader.get_spatial_dataloader(K=neighbors)
 valid_coords = data_loader.get_valid_coords()
 
-if not trend_analysis:
+if trend_analysis:
     future_save_path = model_save_path + f'/{scenario}_{trend_future_period[0]}_{trend_future_period[1]}/'
     os.makedirs(future_save_path, exist_ok=True)
     data_loader_future = DataLoaderWrapper( 
@@ -161,7 +163,7 @@ if not trend_analysis:
     crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression,lag=lag,
     wet_dry_flag=wet_dry_flag, device=device)
 
-    dataloader_future = data_loader_future.get_dataloader_future(K=neighbors)
+    dataloader_future = data_loader_future.get_spatial_dataloader(K=neighbors)
 
 valid_coords = data_loader.get_valid_coords()
 _, time_x = data_loader.load_dynamic_inputs()
@@ -191,6 +193,7 @@ model.load_state_dict(torch.load(f'{model_save_path}/model_{testepoch}.pth', wei
 model.eval()
 transformed_x = []
 transformed_x_future = []
+patch_future = []
 x_future = []
 params_all = []
 patch_all = []
@@ -212,7 +215,7 @@ with torch.no_grad():
         patch_all.append(patches.cpu())
         params_all.append(params.cpu())
 
-    if not trend_analysis:
+    if trend_analysis:
         for batch in dataloader_future:
             patches, batch_input_norm, batch_x = [b.to(device) for b in batch]
             patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device)  # (B,P,2), numpy
@@ -225,6 +228,7 @@ with torch.no_grad():
             transformed_x_future.append(predictions.cpu())
 
             x_future.append(batch_x.cpu())
+            patch_future.append(patches.cpu())
         
 
 ## no batch exp
@@ -272,20 +276,33 @@ if benchmarking:
 
     
     QM_bench = f'benchmark/QuantileMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
-    if os.path.exists(QM_bench):
-        QM_debiased = torch.load(QM_bench, weights_only=False)
-    else:
-        bench = BiasCorrectionBenchmark(clim = clim,
-                                        ref = ref,
-                                        hist_period = train_period, 
-                                        test_period = test_period, 
-                                        scenario = 'historical', 
-                                        clim_var = clim_var, 
-                                        correction_methods = ['QuantileMapping'],  
-                                        model_path = model_save_path, 
-                                        test_path = save_path)  
-        bench.apply_correction()
-        QM_debiased = torch.load(QM_bench, weights_only=False)
+    QDM_bench = f'benchmark/QuantileDeltaMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+    # cdft_bench = f'benchmark/CDFt/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+    DC_bench = f'benchmark/DeltaChange/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+    SDM_bench = f'benchmark/ScaledDistributionMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+    LS_bench = f'benchmark/LinearScaling/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+    ISIMIP_bench = f'benchmark/ISIMIP/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+    ECDFM_bench = f'benchmark/ECDFM/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+
+ 
+    bench = BiasCorrectionBenchmark(clim = clim,
+                                    ref = ref,
+                                    hist_period = train_period, 
+                                    test_period = test_period, 
+                                    scenario = 'historical', 
+                                    clim_var = clim_var, 
+                                    correction_methods = ['QuantileMapping', 'ISIMIP', 'ECDFM', 'QuantileDeltaMapping', 'ScaledDistributionMapping', 'LinearScaling'],  
+                                    model_path = model_save_path, 
+                                    test_path = save_path)  
+    bench.apply_correction()
+    QM_debiased = torch.load(QM_bench, weights_only=False)
+    QDM_debiased = torch.load(QDM_bench, weights_only=False)
+    # cdft_debiased = torch.load(cdft_bench, weights_only=False)
+    DC_debiased = torch.load(DC_bench, weights_only=False)
+    SDM_debiased = torch.load(SDM_bench, weights_only=False)
+    LS_debiased = torch.load(LS_bench, weights_only=False)
+    ISIMIP_debiased = torch.load(ISIMIP_bench, weights_only=False)
+    ECDFM_debiased = torch.load(ECDFM_bench, weights_only=False)
 
     x = np.expand_dims(x, axis=-1)
     loca = np.expand_dims(loca, axis=-1)
@@ -307,6 +324,12 @@ if benchmarking:
                                                             obs = y,
                                                             raw = x, 
                                                             QM = QM_debiased,
+                                                            QDM = QDM_debiased,
+                                                            ISIMIP = ISIMIP_debiased,
+                                                            ECDFM = ECDFM_debiased,
+                                                            DC = DC_debiased,
+                                                            SDM = SDM_debiased,
+                                                            LS = LS_debiased,
                                                             LOCA2 = loca,
                                                             diffDownscale = transformed_x)
 
@@ -322,18 +345,36 @@ if benchmarking:
     spelllength_dry = dry_days.calculate_spell_length(minimum_length= 3, obs = y,
                                                             raw = x, 
                                                             QM = QM_debiased,
+                                                            QDM = QDM_debiased,
+                                                            ISIMIP = ISIMIP_debiased,
+                                                            ECDFM = ECDFM_debiased,
+                                                            DC = DC_debiased,
+                                                            SDM = SDM_debiased,
+                                                            LS = LS_debiased,
                                                             LOCA2 = loca, 
                                                             delCLIMD_BA = transformed_x)
 
     spatiotemporal_dry = dry_days.calculate_spatiotemporal_clusters(obs = y,
                                                             raw = x, 
                                                             QM = QM_debiased,
+                                                            QDM = QDM_debiased,
+                                                            ISIMIP = ISIMIP_debiased,
+                                                            ECDFM = ECDFM_debiased,
+                                                            DC = DC_debiased,
+                                                            SDM = SDM_debiased,
+                                                            LS = LS_debiased,
                                                             LOCA2 = loca,
                                                             delCLIMD_BA = transformed_x)
 
     spatial_dry = dry_days.calculate_spatial_extent(obs = y,
                                                     raw = x, 
                                                     QM = QM_debiased,
+                                                    QDM = QDM_debiased,
+                                                    ISIMIP = ISIMIP_debiased,
+                                                    ECDFM = ECDFM_debiased,
+                                                    DC = DC_debiased,
+                                                    SDM = SDM_debiased,
+                                                    LS = LS_debiased,
                                                     LOCA2 = loca,
                                                     delCLIMD_BA = transformed_x)
 
@@ -343,27 +384,40 @@ if benchmarking:
 
 
     if trend_analysis:
-        transformed_x_future = torch.cat(transformed_x_future, dim=0).numpy().T
+        # transformed_x_future = torch.cat(transformed_x_future, dim=0).numpy().T
+        transformed_x_future = data_loader_future.reconstruct_from_patches(patch_future, transformed_x_future, mode='mean').numpy().T
+
         torch.save(transformed_x_future, f'{future_save_path}/xt.pt')
-        x_future = torch.cat(x_future, dim=0).numpy().T
+        # x_future = torch.cat(x_future, dim=0).numpy().T
+        x_future = data_loader_future.reconstruct_from_patches(patch_future, x_future, mode='mean').numpy().T
 
         
         QM_bench_future = f'benchmark/QuantileMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
-        if os.path.exists(QM_bench_future):
-            QM_debiased_future = torch.load(QM_bench_future, weights_only=False)
-        else:
-            bench = BiasCorrectionBenchmark(clim = clim,
-                                        ref = ref,
-                                        hist_period = train_period, 
-                                        test_period = trend_future_period, 
-                                        scenario = scenario, 
-                                        clim_var = clim_var, 
-                                        correction_methods = ['QuantileMapping'],  
-                                        model_path = model_save_path, 
-                                        test_path = future_save_path)
-            bench.apply_correction()
-            QM_debiased_future = torch.load(QM_bench_future, weights_only=False) 
-    
+        QDM_bench_future = f'benchmark/QuantileDeltaMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+        # cdft_bench_future = f'benchmark/CDFt/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+        DC_bench_future = f'benchmark/DeltaChange/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+        SDM_bench_future = f'benchmark/ScaledDistributionMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+        LS_bench_future = f'benchmark/LinearScaling/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+        ISIMIP_bench_future = f'benchmark/ISIMIP/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+        ECDFM_bench_future = f'benchmark/ECDFM/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+        bench = BiasCorrectionBenchmark(clim = clim,
+                                    ref = ref,
+                                    hist_period = train_period, 
+                                    test_period = trend_future_period, 
+                                    scenario = scenario, 
+                                    clim_var = clim_var, 
+                                    correction_methods = ['QuantileMapping', 'ISIMIP', 'ECDFM', 'DeltaChange', 'QuantileDeltaMapping', 'ScaledDistributionMapping', 'LinearScaling'],  
+                                    model_path = model_save_path, 
+                                    test_path = future_save_path)
+        bench.apply_correction()
+        QM_debiased_future = torch.load(QM_bench_future, weights_only=False) 
+        QDM_debiased_future = torch.load(QDM_bench_future, weights_only=False)
+        # cdft_debiased_future = torch.load(cdft_bench_future, weights_only=False)
+        ISIMIP_debiased_future = torch.load(ISIMIP_bench_future, weights_only=False)
+        ECDFM_debiased_future = torch.load(ECDFM_bench_future, weights_only=False)
+        DC_debiased_future = torch.load(DC_bench_future, weights_only=False)
+        SDM_debiased_future = torch.load(SDM_bench_future, weights_only=False)
+        LS_debiased_future = torch.load(LS_bench_future, weights_only=False)
 
         loca_future = xr.open_dataset(f'{cmip6_dir}/{clim}/{scenario}/precipitation/loca/coarse_USclip.nc')
         loca_future = loca_future[input_x['precipitation'][0]].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
@@ -384,6 +438,12 @@ if benchmarking:
                                                     raw_validate = x, raw_future = x_future,
                                                             metrics = pr_metrics,
                                                     QM = [QM_debiased, QM_debiased_future],
+                                                            QDM = [QDM_debiased, QDM_debiased_future],
+                                                            ISIMIP = [ISIMIP_debiased, ISIMIP_debiased_future],
+                                                            ECDFM = [ECDFM_debiased, ECDFM_debiased_future],
+                                                            DC = [DC_debiased, DC_debiased_future],
+                                                            SDM = [SDM_debiased, SDM_debiased_future],
+                                                            LS = [LS_debiased, LS_debiased_future],
                                                     LOCA2 = [loca, loca_future],
                                                             delCLIMD_BA = [transformed_x, transformed_x_future])
 

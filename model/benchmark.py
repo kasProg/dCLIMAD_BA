@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import xarray as xr
 import pandas as pd
-from ibicus.debias import QuantileMapping, CDFt, DeltaChange, QuantileDeltaMapping, ScaledDistributionMapping, LinearScaling
+from ibicus.debias import QuantileMapping, CDFt, DeltaChange, QuantileDeltaMapping, ScaledDistributionMapping, LinearScaling, ISIMIP, ECDFM
 from ibicus.evaluate.metrics import *
 import data.valid_crd as valid_crd
 
@@ -42,19 +42,18 @@ class BiasCorrectionBenchmark:
 
     def load_data(self):
         """Loads the historical and future climate model data and reference dataset."""
-        print("Loading dataset for benchmarking...")      
-       
+        print("Loading dataset for benchmarking...")
         self.hist_time =  torch.load(f'{self.model_path}/time.pt', weights_only=False)
-        self.hist_model = torch.load(f'{self.model_path}/x.pt', map_location='cpu').numpy()
+        self.hist_model = torch.load(f'{self.model_path}/x.pt', map_location='cpu', weights_only=True).numpy()
 
         self.test_time =  torch.load(f'{self.test_path}/time.pt', weights_only=False)
-        self.test_model = torch.load(f'{self.test_path}/x.pt', map_location='cpu').numpy()
-        
-        self.reference = torch.load(f'{self.model_path}/y.pt', map_location='cpu').numpy()
+        self.test_model = torch.load(f'{self.test_path}/x.pt', map_location='cpu', weights_only=True).numpy()
+
+        self.reference = torch.load(f'{self.model_path}/y.pt', map_location='cpu', weights_only=True).numpy()
 
         ## needed for perfect model approach
         if os.path.exists(f'{self.model_path}/time_y.pt'):
-            self.ref_time = torch.load(f'{self.model_path}/time_y.pt', weights_only=False)
+            self.ref_time = torch.load(f'{self.model_path}/time_y.pt', weights_only=True)
 
 
         ## may need to refactor better
@@ -70,19 +69,31 @@ class BiasCorrectionBenchmark:
         for method in self.correction_methods:
             print(f"Applying bias correction: {method}")
 
+            save_path = f'benchmark/{method}/conus/{self.clim}-{self.ref}'
+            os.makedirs(save_path, exist_ok=True)
+            save_file = f'{save_path}/{self.hist_period}_{self.scenario}_{self.test_period}.pt'
+
+            if os.path.exists(save_file):
+                print(f"Debiased data for {method} already exists at {save_file}, skipping...")
+                continue
+
             # Select bias correction method
             if method == "QuantileMapping":
                 debiaser = QuantileMapping.from_variable(self.clim_var, mapping_type="parametric")
             elif method == "CDFt":
-                debiaser = CDFt.from_variable(self.var)
+                debiaser = CDFt.from_variable(self.clim_var)
             elif method == "DeltaChange":
-                debiaser = DeltaChange.from_variable(self.var)
+                debiaser = DeltaChange.from_variable(self.clim_var)
             elif method == "QuantileDeltaMapping":
                 debiaser = QuantileDeltaMapping.from_variable(self.clim_var)
             elif method == "ScaledDistributionMapping":
                 debiaser = ScaledDistributionMapping.from_variable(self.clim_var)
             elif method == "LinearScaling": 
                 debiaser = LinearScaling.from_variable(self.clim_var)
+            elif method == "ISIMIP":
+                debiaser = ISIMIP.from_variable(self.clim_var)
+            elif method == "ECDFM":
+                debiaser = ECDFM.from_variable(self.clim_var)
             else:
                 print(f"Unknown method: {method}, skipping...")
                 continue
@@ -93,10 +104,7 @@ class BiasCorrectionBenchmark:
                 time_obs=self.ref_time, time_cm_hist=self.hist_time, time_cm_future=self.test_time
             )
 
-            save_path = f'benchmark/{method}/conus/{self.clim}-{self.ref}'
-            os.makedirs(save_path, exist_ok=True)
-
-            # Save results
-            save_file = f'{save_path}/{self.hist_period}_{self.scenario}_{self.test_period}.pt'
+    
+            # Save results        
             torch.save(debiased_future, save_file)
             print(f"Saved debiased data to {save_file}")

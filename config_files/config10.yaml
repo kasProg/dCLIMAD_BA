@@ -21,19 +21,19 @@ fixed:
   train_end: 2000
   val_start: 1965
   val_end: 1978
-  trend_start: 2075
+  trend_start: 2015
   trend_end: 2099
 
   monotone: True # if True, will use monotonicity constraint in the model
 
   ## model params
   transform_type: 'monotone'
-  temp_enc: 'LSTM'
-  layers: 3
+  temp_enc: 'Conv1d'
+  layers: 2
   epochs: 100
   hidden_size: 64
   testepoch: 50
-  batch_size: 1
+  batch_size: 5
   autoregression: True # if True, will use autoregressive features in the data loader
   lag: 3
   loss: ['quantile', 'rainy_day', spatial_correlation]
@@ -44,7 +44,7 @@ fixed:
   chunk: True
   chunk_size: 365
   stride: 90
-  neighbors: 32  #number of spatial neighbors
+  neighbors: 16  #number of spatial neighbors
 
   ## run conditions
   trend_analysis: True
@@ -55,8 +55,8 @@ fixed:
 
 
   ## PATHS
-  save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_monotone_32spatioTempLSTM_spatialLoss'
-  logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_revised/conus_livneh_monotone_32spatioTempLSTM_spatialLoss'
+  save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs_AdamW/jobs_monotone_LOCAspatioTempConv1d_spatialLoss'
+  logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_revised_AdamW/conus_livneh_monotone_LOCAspatioTempConv1d_spatialLoss'
 
 
   ## for spatial tests--- leave empty for strict temporal tests

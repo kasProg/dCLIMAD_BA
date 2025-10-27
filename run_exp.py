@@ -225,10 +225,9 @@ if ckpt_files:
     # Extract epoch number from filename
     start_epoch = int(os.path.basename(latest_ckpt).split('_')[1].split('.')[0])
     print(f"Resuming from checkpoint: {latest_ckpt}, epoch {start_epoch}")
-    model.load_state_dict(torch.load(latest_ckpt, map_location=device))
+    model.load_state_dict(torch.load(latest_ckpt, map_location=device, weights_only=True))
     
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-# optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
 
 balance_loss = 0  # Adjust this weight to balance between distributional and rainy day losses
 

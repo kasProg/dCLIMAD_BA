@@ -21,7 +21,7 @@ fixed:
   train_end: 2000
   val_start: 1965
   val_end: 1978
-  trend_start: 2075
+  trend_start: 2015
   trend_end: 2099
 
   monotone: True # if True, will use monotonicity constraint in the model
@@ -38,7 +38,7 @@ fixed:
   lag: 3
   loss: ['quantile', 'rainy_day', spatial_correlation]
   pca_mode: False
-  learning_rate: 1e-4
+  learning_rate: 1e-3
 
   ## chunking params
   chunk: True
@@ -55,8 +55,8 @@ fixed:
 
 
   ## PATHS
-  save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/jobs_monotone_spatioTempLSTM_spatialLoss'
-  logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_revised/conus_livneh_monotone_spatioTempLSTM_spatialLoss'
+  save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs_AdamW/jobs_monotone_LOCAspatioTempLSTM_spatialLoss'
+  logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_revised_AdamW/conus_livneh_monotone_LOCAspatioTempLSTM_spatialLoss'
 
 
   ## for spatial tests--- leave empty for strict temporal tests

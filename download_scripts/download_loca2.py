@@ -15,7 +15,7 @@ models= {'ipsl_cm6a_lr': 'IPSL-CM6A-LR',
 models= {
          'miroc6':'MIROC6'}
 variables = {'precipitation':'pr'}
-exps = {'historical':'historical'}
+exps = {'ssp585':'ssp585'}
 cmip6_dir = '/pscratch/sd/k/kas7897/cmip6'
 
 for model in models:
