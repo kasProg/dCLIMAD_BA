@@ -265,215 +265,215 @@ print(f"Quantile RMSE between Model and Target: {quantile_rmse_model}")
 print(f"Quantile RMSE between Corrected and Target: {quantile_rmse_bs}")
 print(f"Quantile RMSE Improvement: {quantile_rmse_model - quantile_rmse_bs}")
 
-if benchmarking:
-    print("processing LOCA for benchmarking...")
-    loca = xr.open_dataset(f'{cmip6_dir}/{clim}/historical/precipitation/loca/coarse_USclip.nc')
-    loca = loca[input_x['precipitation'][0]].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
-                                        lon=xr.DataArray(valid_coords[:, 1], dims='points'),
-                                        method='nearest')
-    loca = loca.sel(time =slice(f'{test_period[0]}', f'{test_period[1]}')).values
+# if benchmarking:
+#     print("processing LOCA for benchmarking...")
+#     loca = xr.open_dataset(f'{cmip6_dir}/{clim}/historical/precipitation/loca/coarse_USclip.nc')
+#     loca = loca[input_x['precipitation'][0]].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
+#                                         lon=xr.DataArray(valid_coords[:, 1], dims='points'),
+#                                         method='nearest')
+#     loca = loca.sel(time =slice(f'{test_period[0]}', f'{test_period[1]}')).values
 
 
     
-    QM_bench = f'benchmark/QuantileMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
-    QDM_bench = f'benchmark/QuantileDeltaMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
-    # cdft_bench = f'benchmark/CDFt/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
-    DC_bench = f'benchmark/DeltaChange/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
-    SDM_bench = f'benchmark/ScaledDistributionMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
-    LS_bench = f'benchmark/LinearScaling/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
-    ISIMIP_bench = f'benchmark/ISIMIP/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
-    ECDFM_bench = f'benchmark/ECDFM/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+#     QM_bench = f'benchmark/QuantileMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+#     QDM_bench = f'benchmark/QuantileDeltaMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+#     # cdft_bench = f'benchmark/CDFt/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+#     DC_bench = f'benchmark/DeltaChange/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+#     SDM_bench = f'benchmark/ScaledDistributionMapping/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+#     LS_bench = f'benchmark/LinearScaling/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+#     ISIMIP_bench = f'benchmark/ISIMIP/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
+#     ECDFM_bench = f'benchmark/ECDFM/conus/{clim}-{ref}/{train_period}_historical_{test_period}.pt'
 
  
-    bench = BiasCorrectionBenchmark(clim = clim,
-                                    ref = ref,
-                                    hist_period = train_period, 
-                                    test_period = test_period, 
-                                    scenario = 'historical', 
-                                    clim_var = clim_var, 
-                                    correction_methods = ['QuantileMapping', 'ISIMIP', 'ECDFM', 'QuantileDeltaMapping', 'ScaledDistributionMapping', 'LinearScaling'],  
-                                    model_path = model_save_path, 
-                                    test_path = save_path)  
-    bench.apply_correction()
-    QM_debiased = torch.load(QM_bench, weights_only=False)
-    QDM_debiased = torch.load(QDM_bench, weights_only=False)
-    # cdft_debiased = torch.load(cdft_bench, weights_only=False)
-    DC_debiased = torch.load(DC_bench, weights_only=False)
-    SDM_debiased = torch.load(SDM_bench, weights_only=False)
-    LS_debiased = torch.load(LS_bench, weights_only=False)
-    ISIMIP_debiased = torch.load(ISIMIP_bench, weights_only=False)
-    ECDFM_debiased = torch.load(ECDFM_bench, weights_only=False)
+#     bench = BiasCorrectionBenchmark(clim = clim,
+#                                     ref = ref,
+#                                     hist_period = train_period, 
+#                                     test_period = test_period, 
+#                                     scenario = 'historical', 
+#                                     clim_var = clim_var, 
+#                                     correction_methods = ['QuantileMapping', 'ISIMIP', 'ECDFM', 'QuantileDeltaMapping', 'ScaledDistributionMapping', 'LinearScaling'],  
+#                                     model_path = model_save_path, 
+#                                     test_path = save_path)  
+#     bench.apply_correction()
+#     QM_debiased = torch.load(QM_bench, weights_only=False)
+#     QDM_debiased = torch.load(QDM_bench, weights_only=False)
+#     # cdft_debiased = torch.load(cdft_bench, weights_only=False)
+#     DC_debiased = torch.load(DC_bench, weights_only=False)
+#     SDM_debiased = torch.load(SDM_bench, weights_only=False)
+#     LS_debiased = torch.load(LS_bench, weights_only=False)
+#     ISIMIP_debiased = torch.load(ISIMIP_bench, weights_only=False)
+#     ECDFM_debiased = torch.load(ECDFM_bench, weights_only=False)
 
-    x = np.expand_dims(x, axis=-1)
-    loca = np.expand_dims(loca, axis=-1)
-    y = np.expand_dims(y, axis=-1)
-    transformed_x = np.expand_dims(transformed_x, axis=-1)
+#     x = np.expand_dims(x, axis=-1)
+#     loca = np.expand_dims(loca, axis=-1)
+#     y = np.expand_dims(y, axis=-1)
+#     transformed_x = np.expand_dims(transformed_x, axis=-1)
 
-    #ibicus plots
-    pr_metrics = [dry_days, wet_days, R10mm]
+#     #ibicus plots
+#     pr_metrics = [dry_days, wet_days, R10mm]
 
-    x = x/86400
-    y = y/86400
-    transformed_x = transformed_x/86400
-    # QM_debiased =  QM_debiased/ 86400
+#     x = x/86400
+#     y = y/86400
+#     transformed_x = transformed_x/86400
+#     # QM_debiased =  QM_debiased/ 86400
     
 
-    pr_marginal_bias_data = marginal.calculate_marginal_bias(metrics = pr_metrics, 
-                                                            statistics = ['mean', 0.95],
-                                                            percentage_or_absolute = 'percentage',
-                                                            obs = y,
-                                                            raw = x, 
-                                                            QM = QM_debiased,
-                                                            QDM = QDM_debiased,
-                                                            ISIMIP = ISIMIP_debiased,
-                                                            ECDFM = ECDFM_debiased,
-                                                            DC = DC_debiased,
-                                                            SDM = SDM_debiased,
-                                                            LS = LS_debiased,
-                                                            LOCA2 = loca,
-                                                            diffDownscale = transformed_x)
+#     pr_marginal_bias_data = marginal.calculate_marginal_bias(metrics = pr_metrics, 
+#                                                             statistics = ['mean', 0.95],
+#                                                             percentage_or_absolute = 'percentage',
+#                                                             obs = y,
+#                                                             raw = x, 
+#                                                             QM = QM_debiased,
+#                                                             QDM = QDM_debiased,
+#                                                             ISIMIP = ISIMIP_debiased,
+#                                                             ECDFM = ECDFM_debiased,
+#                                                             DC = DC_debiased,
+#                                                             SDM = SDM_debiased,
+#                                                             LS = LS_debiased,
+#                                                             LOCA2 = loca,
+#                                                             diffDownscale = transformed_x)
 
-    pr_marginal_bias_plot = marginal.plot_marginal_bias(variable = 'pr', 
-                                                        bias_df = pr_marginal_bias_data,
-                                                    remove_outliers = True,
-                                                    outlier_threshold_statistics = 10,
-                                                    metrics_title = 'Percentage bias [days]',
-                                                    statistics_title = 'Percentage bias')
+#     pr_marginal_bias_plot = marginal.plot_marginal_bias(variable = 'pr', 
+#                                                         bias_df = pr_marginal_bias_data,
+#                                                     remove_outliers = True,
+#                                                     outlier_threshold_statistics = 10,
+#                                                     metrics_title = 'Percentage bias [days]',
+#                                                     statistics_title = 'Percentage bias')
 
-    pr_marginal_bias_plot.savefig(f'{test_save_path}/ibicus_fig.png')
+#     pr_marginal_bias_plot.savefig(f'{test_save_path}/ibicus_fig.png')
 
-    spelllength_dry = dry_days.calculate_spell_length(minimum_length= 3, obs = y,
-                                                            raw = x, 
-                                                            QM = QM_debiased,
-                                                            QDM = QDM_debiased,
-                                                            ISIMIP = ISIMIP_debiased,
-                                                            ECDFM = ECDFM_debiased,
-                                                            DC = DC_debiased,
-                                                            SDM = SDM_debiased,
-                                                            LS = LS_debiased,
-                                                            LOCA2 = loca, 
-                                                            delCLIMD_BA = transformed_x)
+#     spelllength_dry = dry_days.calculate_spell_length(minimum_length= 3, obs = y,
+#                                                             raw = x, 
+#                                                             QM = QM_debiased,
+#                                                             QDM = QDM_debiased,
+#                                                             ISIMIP = ISIMIP_debiased,
+#                                                             ECDFM = ECDFM_debiased,
+#                                                             DC = DC_debiased,
+#                                                             SDM = SDM_debiased,
+#                                                             LS = LS_debiased,
+#                                                             LOCA2 = loca, 
+#                                                             delCLIMD_BA = transformed_x)
 
-    spatiotemporal_dry = dry_days.calculate_spatiotemporal_clusters(obs = y,
-                                                            raw = x, 
-                                                            QM = QM_debiased,
-                                                            QDM = QDM_debiased,
-                                                            ISIMIP = ISIMIP_debiased,
-                                                            ECDFM = ECDFM_debiased,
-                                                            DC = DC_debiased,
-                                                            SDM = SDM_debiased,
-                                                            LS = LS_debiased,
-                                                            LOCA2 = loca,
-                                                            delCLIMD_BA = transformed_x)
+#     spatiotemporal_dry = dry_days.calculate_spatiotemporal_clusters(obs = y,
+#                                                             raw = x, 
+#                                                             QM = QM_debiased,
+#                                                             QDM = QDM_debiased,
+#                                                             ISIMIP = ISIMIP_debiased,
+#                                                             ECDFM = ECDFM_debiased,
+#                                                             DC = DC_debiased,
+#                                                             SDM = SDM_debiased,
+#                                                             LS = LS_debiased,
+#                                                             LOCA2 = loca,
+#                                                             delCLIMD_BA = transformed_x)
 
-    spatial_dry = dry_days.calculate_spatial_extent(obs = y,
-                                                    raw = x, 
-                                                    QM = QM_debiased,
-                                                    QDM = QDM_debiased,
-                                                    ISIMIP = ISIMIP_debiased,
-                                                    ECDFM = ECDFM_debiased,
-                                                    DC = DC_debiased,
-                                                    SDM = SDM_debiased,
-                                                    LS = LS_debiased,
-                                                    LOCA2 = loca,
-                                                    delCLIMD_BA = transformed_x)
+#     spatial_dry = dry_days.calculate_spatial_extent(obs = y,
+#                                                     raw = x, 
+#                                                     QM = QM_debiased,
+#                                                     QDM = QDM_debiased,
+#                                                     ISIMIP = ISIMIP_debiased,
+#                                                     ECDFM = ECDFM_debiased,
+#                                                     DC = DC_debiased,
+#                                                     SDM = SDM_debiased,
+#                                                     LS = LS_debiased,
+#                                                     LOCA2 = loca,
+#                                                     delCLIMD_BA = transformed_x)
 
-    spatiotemporal_fig = marginal.plot_spatiotemporal(data = [spelllength_dry, spatiotemporal_dry, spatial_dry])
+#     spatiotemporal_fig = marginal.plot_spatiotemporal(data = [spelllength_dry, spatiotemporal_dry, spatial_dry])
 
-    spatiotemporal_fig.savefig(f'{test_save_path}/ibicus_fig1.png')
+#     spatiotemporal_fig.savefig(f'{test_save_path}/ibicus_fig1.png')
 
 
-    if trend_analysis:
-        # transformed_x_future = torch.cat(transformed_x_future, dim=0).numpy().T
-        transformed_x_future = data_loader_future.reconstruct_from_patches(patch_future, transformed_x_future, mode='mean').numpy().T
+#     if trend_analysis:
+#         # transformed_x_future = torch.cat(transformed_x_future, dim=0).numpy().T
+#         transformed_x_future = data_loader_future.reconstruct_from_patches(patch_future, transformed_x_future, mode='mean').numpy().T
 
-        torch.save(transformed_x_future, f'{future_save_path}/xt.pt')
-        # x_future = torch.cat(x_future, dim=0).numpy().T
-        x_future = data_loader_future.reconstruct_from_patches(patch_future, x_future, mode='mean').numpy().T
+#         torch.save(transformed_x_future, f'{future_save_path}/xt.pt')
+#         # x_future = torch.cat(x_future, dim=0).numpy().T
+#         x_future = data_loader_future.reconstruct_from_patches(patch_future, x_future, mode='mean').numpy().T
 
         
-        QM_bench_future = f'benchmark/QuantileMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
-        QDM_bench_future = f'benchmark/QuantileDeltaMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
-        # cdft_bench_future = f'benchmark/CDFt/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
-        DC_bench_future = f'benchmark/DeltaChange/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
-        SDM_bench_future = f'benchmark/ScaledDistributionMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
-        LS_bench_future = f'benchmark/LinearScaling/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
-        ISIMIP_bench_future = f'benchmark/ISIMIP/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
-        ECDFM_bench_future = f'benchmark/ECDFM/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
-        bench = BiasCorrectionBenchmark(clim = clim,
-                                    ref = ref,
-                                    hist_period = train_period, 
-                                    test_period = trend_future_period, 
-                                    scenario = scenario, 
-                                    clim_var = clim_var, 
-                                    correction_methods = ['QuantileMapping', 'ISIMIP', 'ECDFM', 'DeltaChange', 'QuantileDeltaMapping', 'ScaledDistributionMapping', 'LinearScaling'],  
-                                    model_path = model_save_path, 
-                                    test_path = future_save_path)
-        bench.apply_correction()
-        QM_debiased_future = torch.load(QM_bench_future, weights_only=False) 
-        QDM_debiased_future = torch.load(QDM_bench_future, weights_only=False)
-        # cdft_debiased_future = torch.load(cdft_bench_future, weights_only=False)
-        ISIMIP_debiased_future = torch.load(ISIMIP_bench_future, weights_only=False)
-        ECDFM_debiased_future = torch.load(ECDFM_bench_future, weights_only=False)
-        DC_debiased_future = torch.load(DC_bench_future, weights_only=False)
-        SDM_debiased_future = torch.load(SDM_bench_future, weights_only=False)
-        LS_debiased_future = torch.load(LS_bench_future, weights_only=False)
+#         QM_bench_future = f'benchmark/QuantileMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+#         QDM_bench_future = f'benchmark/QuantileDeltaMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+#         # cdft_bench_future = f'benchmark/CDFt/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+#         DC_bench_future = f'benchmark/DeltaChange/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+#         SDM_bench_future = f'benchmark/ScaledDistributionMapping/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+#         LS_bench_future = f'benchmark/LinearScaling/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+#         ISIMIP_bench_future = f'benchmark/ISIMIP/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+#         ECDFM_bench_future = f'benchmark/ECDFM/conus/{clim}-{ref}/{train_period}_{scenario}_{trend_future_period}.pt'
+#         bench = BiasCorrectionBenchmark(clim = clim,
+#                                     ref = ref,
+#                                     hist_period = train_period, 
+#                                     test_period = trend_future_period, 
+#                                     scenario = scenario, 
+#                                     clim_var = clim_var, 
+#                                     correction_methods = ['QuantileMapping', 'ISIMIP', 'ECDFM', 'DeltaChange', 'QuantileDeltaMapping', 'ScaledDistributionMapping', 'LinearScaling'],  
+#                                     model_path = model_save_path, 
+#                                     test_path = future_save_path)
+#         bench.apply_correction()
+#         QM_debiased_future = torch.load(QM_bench_future, weights_only=False) 
+#         QDM_debiased_future = torch.load(QDM_bench_future, weights_only=False)
+#         # cdft_debiased_future = torch.load(cdft_bench_future, weights_only=False)
+#         ISIMIP_debiased_future = torch.load(ISIMIP_bench_future, weights_only=False)
+#         ECDFM_debiased_future = torch.load(ECDFM_bench_future, weights_only=False)
+#         DC_debiased_future = torch.load(DC_bench_future, weights_only=False)
+#         SDM_debiased_future = torch.load(SDM_bench_future, weights_only=False)
+#         LS_debiased_future = torch.load(LS_bench_future, weights_only=False)
 
-        loca_future = xr.open_dataset(f'{cmip6_dir}/{clim}/{scenario}/precipitation/loca/coarse_USclip.nc')
-        loca_future = loca_future[input_x['precipitation'][0]].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
-                                        lon=xr.DataArray(valid_coords[:, 1], dims='points'),
-                                        method='nearest')
-        loca_future = loca_future.sel(time =slice(f'{trend_future_period[0]}', f'{trend_future_period[1]}')).values
+#         loca_future = xr.open_dataset(f'{cmip6_dir}/{clim}/{scenario}/precipitation/loca/coarse_USclip.nc')
+#         loca_future = loca_future[input_x['precipitation'][0]].sel(lat=xr.DataArray(valid_coords[:, 0], dims='points'),
+#                                         lon=xr.DataArray(valid_coords[:, 1], dims='points'),
+#                                         method='nearest')
+#         loca_future = loca_future.sel(time =slice(f'{trend_future_period[0]}', f'{trend_future_period[1]}')).values
 
-        loca_future = np.expand_dims(loca_future, axis=-1)
-        transformed_x_future = np.expand_dims(transformed_x_future, axis=-1)
-        x_future = np.expand_dims(x_future, axis=-1)
+#         loca_future = np.expand_dims(loca_future, axis=-1)
+#         transformed_x_future = np.expand_dims(transformed_x_future, axis=-1)
+#         x_future = np.expand_dims(x_future, axis=-1)
 
-        # QM_debiased_future = QM_debiased_future/86400
-        x_future = x_future/86400
-        transformed_x_future = transformed_x_future/86400
+#         # QM_debiased_future = QM_debiased_future/86400
+#         x_future = x_future/86400
+#         transformed_x_future = transformed_x_future/86400
 
-        trend_bias_data = trend.calculate_future_trend_bias(statistics = ["mean"], 
-                                                            trend_type = 'additive',
-                                                    raw_validate = x, raw_future = x_future,
-                                                            metrics = pr_metrics,
-                                                    QM = [QM_debiased, QM_debiased_future],
-                                                            QDM = [QDM_debiased, QDM_debiased_future],
-                                                            ISIMIP = [ISIMIP_debiased, ISIMIP_debiased_future],
-                                                            ECDFM = [ECDFM_debiased, ECDFM_debiased_future],
-                                                            DC = [DC_debiased, DC_debiased_future],
-                                                            SDM = [SDM_debiased, SDM_debiased_future],
-                                                            LS = [LS_debiased, LS_debiased_future],
-                                                    LOCA2 = [loca, loca_future],
-                                                            delCLIMD_BA = [transformed_x, transformed_x_future])
+#         trend_bias_data = trend.calculate_future_trend_bias(statistics = ["mean"], 
+#                                                             trend_type = 'additive',
+#                                                     raw_validate = x, raw_future = x_future,
+#                                                             metrics = pr_metrics,
+#                                                     QM = [QM_debiased, QM_debiased_future],
+#                                                             QDM = [QDM_debiased, QDM_debiased_future],
+#                                                             ISIMIP = [ISIMIP_debiased, ISIMIP_debiased_future],
+#                                                             ECDFM = [ECDFM_debiased, ECDFM_debiased_future],
+#                                                             DC = [DC_debiased, DC_debiased_future],
+#                                                             SDM = [SDM_debiased, SDM_debiased_future],
+#                                                             LS = [LS_debiased, LS_debiased_future],
+#                                                     LOCA2 = [loca, loca_future],
+#                                                             delCLIMD_BA = [transformed_x, transformed_x_future])
 
-        trend_plot = trend.plot_future_trend_bias_boxplot(variable ='pr', 
-                                                        bias_df = trend_bias_data, 
-                                                        remove_outliers = True,
-                                                                outlier_threshold = 500)
+#         trend_plot = trend.plot_future_trend_bias_boxplot(variable ='pr', 
+#                                                         bias_df = trend_bias_data, 
+#                                                         remove_outliers = True,
+#                                                                 outlier_threshold = 500)
         
-        trend_plot.savefig(f'{future_save_path}/ibicus_fig2.png')
+#         trend_plot.savefig(f'{future_save_path}/ibicus_fig2.png')
 
-    if logging:
-        writer.add_text(
-            "Evaluation Metrics",
-            f"""
-            Average distribution improvement: {avg_improvement:.4f}\n
-            Quantile RMSE between Model and Target: {quantile_rmse_model}\n 
-            Quantile RMSE between Corrected and Target: {quantile_rmse_bs}\n
-            Quantile RMSE Improvement: {quantile_rmse_model - quantile_rmse_bs}\n            
-            """,
-            0
-            )       
+#     if logging:
+#         writer.add_text(
+#             "Evaluation Metrics",
+#             f"""
+#             Average distribution improvement: {avg_improvement:.4f}\n
+#             Quantile RMSE between Model and Target: {quantile_rmse_model}\n 
+#             Quantile RMSE between Corrected and Target: {quantile_rmse_bs}\n
+#             Quantile RMSE Improvement: {quantile_rmse_model - quantile_rmse_bs}\n            
+#             """,
+#             0
+#             )       
     
-        writer.add_figure("Figure 1", pr_marginal_bias_plot, global_step=epochs)
+#         writer.add_figure("Figure 1", pr_marginal_bias_plot, global_step=epochs)
 
 
-        writer.add_figure("Figure 2", spatiotemporal_fig, global_step=epochs)
+#         writer.add_figure("Figure 2", spatiotemporal_fig, global_step=epochs)
 
-        if trend_analysis:
-            writer.add_figure("Figure 3", trend_plot, global_step=epochs)
+#         if trend_analysis:
+#             writer.add_figure("Figure 3", trend_plot, global_step=epochs)
 
-        writer.close()
+#         writer.close()
 
 

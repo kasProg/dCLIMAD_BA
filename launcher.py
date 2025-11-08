@@ -1,77 +1,84 @@
-import itertools
+import hydra
+from omegaconf import DictConfig, OmegaConf, ListConfig
+from hydra.core.hydra_config import HydraConfig
 import subprocess
-import yaml
-import time
-import argparse
+import os
+from itertools import product
 
-# -----------------------------
-# Parse command-line arguments
-# -----------------------------
-parser = argparse.ArgumentParser(description="Job launcher for parameter sweep")
-parser.add_argument("--config", type=str, required=True, help="Path to config YAML file")
-args = parser.parse_args()
-
-# -----------------------------
-# Load configuration file
-# -----------------------------
-with open(args.config, 'r') as f:
-    config = yaml.safe_load(f)
-
-sweep = config['sweep']
-fixed = config['fixed']
-
-# Available GPUs (example: 4 GPUs = [0,1,2,3])
-available_gpus = config['available_gpus']
-gpu_jobs = {gpu: None for gpu in available_gpus}
-
-# Create all combinations of sweep parameters
-keys, values = zip(*sweep.items())
-param_combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-print(f"Total jobs: {len(param_combinations)}")
-
-if config['fixed']['train']:
-    run_file = "run_exp.py"
-else:
-    run_file = "run_val.py"
-
-def launch_job(params, gpu_id, run_file):
-    command = ["python", run_file]
-
-    # Add sweep params
-    for k, v in params.items():
-        if isinstance(v, list):
-            command += [f"--{k}"] + [str(item) for item in v]
-        elif v is not None:
-            command += [f"--{k}", str(v)]
-
-    # Add fixed params
-    for k, v in fixed.items():
-        if isinstance(v, bool):
-            if v:
-                command.append(f"--{k}")
-        elif isinstance(v, list):
-            command += [f"--{k}"] + [str(item) for item in v]
-        elif v is not None:
-            command += [f"--{k}", str(v)]
-
-    command += ["--cuda_device", str(gpu_id)]
-
-    print(f"Launching on GPU {gpu_id}: {' '.join(command)}")
-    return subprocess.Popen(command)
-
-while param_combinations or any(gpu_jobs.values()):
-    # Check for finished jobs
-    for gpu_id, job in gpu_jobs.items():
-        if job is not None and job.poll() is not None:
-            gpu_jobs[gpu_id] = None
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def launcher(cfg: DictConfig):
+    """Launch multiple jobs with parameter sweeps"""
+    
+    print("Launcher Configuration:")
+    print(OmegaConf.to_yaml(cfg))
+    
+    # Automatically detect sweep parameters (any parameter that is a list)
+    sweep_params = {}
+    
+    for key, value in cfg.items():
+        # Skip special keys
+        if key in ['available_gpus', 'save_path', 'logging_path', 'cmip_dir', 
+                   'ref_dir', 'defaults', 'loss']:
+            continue
         
-        # Launch new job if this GPU is free
-        if gpu_jobs[gpu_id] is None and param_combinations:
-            params = param_combinations.pop(0)
-            gpu_jobs[gpu_id] = launch_job(params, gpu_id, run_file)
+        # If it's a list/tuple with more than 1 element, it's a sweep parameter
+        if isinstance(value, (list, tuple, ListConfig)):
+            if len(value) > 1 or (len(value) == 1 and isinstance(value[0], (list, tuple))):
+                sweep_params[key] = list(value)
+                print(f"Detected sweep parameter: {key} = {value}")
+            # Single-element lists are treated as fixed values
+            elif len(value) == 1:
+                print(f"Fixed parameter (single-element list): {key} = {value[0]}")
+        # If it's a single value but you explicitly want to sweep it, 
+        # make sure it's a list in your config
+    
+    if not sweep_params:
+        print("\nNo sweep parameters detected!")
+        print("Make sure your sweep parameters are lists with multiple values in the config.")
+        return
+    
+    # Generate all combinations
+    keys = list(sweep_params.keys())
+    values = [sweep_params[k] for k in keys]
+    combinations = list(product(*values))
+    
+    print(f"\nTotal combinations: {len(combinations)}")
+    print(f"Available GPUs: {cfg.available_gpus}")
+    print(f"Sweep parameters: {keys}")
+    
+    gpu_idx = 0
+    num_gpus = len(cfg.available_gpus)
+    
+    for i, combo in enumerate(combinations, 1):
+        # Build override arguments
+        overrides = []
+        for key, value in zip(keys, combo):
+            if isinstance(value, str) and ';' in value:
+                overrides.append(f"{key}='{value}'")
+            else:
+                overrides.append(f"{key}={value}")
+        
+        # Assign GPU
+        gpu = cfg.available_gpus[gpu_idx % num_gpus]
+        
+        # Create descriptive name for this combination
+        combo_name = f"{combo[0]}_deg{combo[1]}_q{combo[2]}"  # e.g., access_cm2_deg2_q0.5
+        
+        print(f"\n[{i}/{len(combinations)}] Launching job on GPU {gpu}")
+        print(f"  Parameters: {dict(zip(keys, combo))}")
+        
+        # Use descriptive Hydra directory name
+        cmd = [
+            'python', 'run_exp.py',
+            f'hydra.run.dir=hydra_logs/{combo_name}',  # ← Descriptive name
+            f'cuda_device={gpu}'
+        ] + overrides
+        
+        print(f"  Command: {' '.join(cmd)}")
+        
+        subprocess.Popen(cmd, env={**os.environ, 'CUDA_VISIBLE_DEVICES': str(gpu)})
+        
+        gpu_idx += 1
 
-    # Short sleep to reduce CPU usage
-    time.sleep(5)
-
-print("All jobs finished.")
+if __name__ == "__main__":
+    launcher()

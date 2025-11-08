@@ -1,6 +1,6 @@
 sweep:
   clim: ['access_cm2', 'gfdl_esm4', 'ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr','mri_esm2_0']
-  degree: [8]   #if montone is True, degree is number of bumps
+  degree: [12]   #if montone is True, degree is number of bumps
   emph_quantile: [0.5, 0.9]
   time_scale: ['daily']
   input_attrs: ['elev;slope;aspect;landcover']
@@ -55,8 +55,8 @@ fixed:
 
 
   ## PATHS
-  save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs_AdamW/jobs_monotone_LOCAspatioTempLSTM_spatialLoss'
-  logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_revised_AdamW/conus_livneh_monotone_LOCAspatioTempLSTM_spatialLoss'
+  save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs_AdamW/jobs_monotone12_LOCAspatioTempLSTM_spatialLoss'
+  logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_revised_AdamW/conus_livneh_monotone12_LOCAspatioTempLSTM_spatialLoss'
 
 
   ## for spatial tests--- leave empty for strict temporal tests

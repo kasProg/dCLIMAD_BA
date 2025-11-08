@@ -15,6 +15,9 @@ import os
 from eval.metrics import *
 import json
 import glob
+import subprocess
+import os
+from itertools import product
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
@@ -94,6 +97,7 @@ validation = args.validation
 
 train_period = [args.train_start, args.train_end]
 val_period = [args.val_start, args.val_end]
+# epochs = args.epochs
 epochs = args.epochs
 testepoch = args.testepoch
 benchmarking = args.benchmarking
