@@ -5,6 +5,17 @@ defaults:
   - sweep: lstm
   - _self_
 
+
+# ============ Sweep Parameters (will be overridden by sweep configs) ============
+# These are placeholders - actual values come from sweep/*.yaml
+clim: ???  
+degree: ???
+emph_quantile: ???
+temp_enc: ???
+layers: ???
+epochs: ???
+
+
 # ============ Data Paths ============
 cmip_dir: '/pscratch/sd/k/kas7897/cmip6'
 ref_dir: '/pscratch/sd/k/kas7897/Livneh/unsplit'
@@ -21,8 +32,6 @@ val_end: 1978
 # ============ Model Architecture ============
 monotone: true
 transform_type: 'monotone'
-temp_enc: 'LSTM'
-layers: 3
 hidden_size: 64
 autoregression: true
 lag: 3
@@ -30,7 +39,6 @@ time_scale: 'daily'
 
 
 # ============ Training Hyperparameters ============
-epochs: 100
 testepoch: 10
 batch_size: 2
 learning_rate: 1e-3
@@ -63,8 +71,4 @@ logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_hydra'
 # ============ GPU Settings ============
 available_gpus: [0, 1, 2, 3]
 
-# ============ Sweep Parameters (will be overridden by sweep configs) ============
-# These are placeholders - actual values come from sweep/*.yaml
-clim: 'access_cm2'  # Required, must be provided by sweep config
-degree: 2
-emph_quantile: 0.9
+

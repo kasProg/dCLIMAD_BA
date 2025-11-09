@@ -1,13 +1,13 @@
 import hydra
 from omegaconf import DictConfig, OmegaConf, ListConfig
-from hydra.core.hydra_config import HydraConfig
 import subprocess
 import os
+import time
 from itertools import product
 
 @hydra.main(version_base=None, config_path="config_hydra", config_name="config")
 def launcher(cfg: DictConfig):
-    """Launch multiple jobs with parameter sweeps"""
+    """Launch multiple jobs with parameter sweeps, managing GPU availability"""
     
     print("="*80)
     print("Launcher Configuration:")
@@ -15,39 +15,26 @@ def launcher(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
     print("="*80)
     
-    # Debug: Print all top-level keys
-    print("\nTop-level config keys:")
-    print(list(cfg.keys()))
-    print()
-    
-    # Automatically detect sweep parameters (any parameter that is a list with >1 element)
+    # Automatically detect sweep parameters
     sweep_params = {}
     
-    # Keys to skip (these should not be sweep parameters even if they're lists)
     skip_keys = {
         'available_gpus', 'save_path', 'logging_path', 'cmip_dir', 
-        'ref_dir', 'defaults', 'loss', 'spatial_extent', 'spatial_extent_val'
+        'ref_dir', 'defaults', 'loss', 'spatial_extent', 'spatial_extent_val',
+        'check_interval'
     }
     
     for key, value in cfg.items():
-        # Skip special keys
         if key in skip_keys:
             continue
         
-        # If it's a list/tuple with more than 1 element, it's a sweep parameter
-        if isinstance(value, (list, tuple, ListConfig)):
-            if len(value) > 1:
-                sweep_params[key] = list(value)
-                print(f"✓ Detected sweep parameter: {key} = {value}")
-            # Single-element lists are treated as fixed values
-            elif len(value) == 1:
-                print(f"  Fixed parameter (single-element list): {key} = {value[0]}")
-        else:
-            # Print scalar values for debugging
-            print(f"  Scalar parameter: {key} = {value}")
+        if isinstance(value, (list, tuple, ListConfig)) and len(value) > 1:
+            sweep_params[key] = list(value)
+            print(f"✓ Sweep parameter: {key} = {value}")
     
     if not sweep_params:
-
+        print("\n❌ No sweep parameters detected!")
+        print("Make sure your sweep config has lists with multiple values.")
         return
     
     # Generate all combinations
@@ -55,48 +42,95 @@ def launcher(cfg: DictConfig):
     values = [sweep_params[k] for k in keys]
     combinations = list(product(*values))
     
-    print("\n" + "="*80)
-    print("Sweep Summary:")
-    print("="*80)
-    print(f"Total combinations: {len(combinations)}")
-    print(f"Available GPUs: {cfg.available_gpus}")
+    # Configuration
+    check_interval = cfg.get('check_interval', 5)  # Seconds between checks
+    available_gpus = list(cfg.available_gpus)
+    
+    print(f"\n{'='*80}")
+    print(f"Sweep Summary:")
+    print(f"{'='*80}")
+    print(f"Total jobs: {len(combinations)}")
+    print(f"Available GPUs: {available_gpus}")
+    print(f"Check interval: {check_interval}s")
     print(f"Sweep parameters: {keys}")
-    print("="*80 + "\n")
+    print(f"{'='*80}\n")
     
-    gpu_idx = 0
-    num_gpus = len(cfg.available_gpus)
+    # Determine which script to run
+    if cfg.get('train', True):
+        run_file = "run_exp.py"
+    else:
+        run_file = "run_val.py"
     
-    for i, combo in enumerate(combinations, 1):
-        # Build override arguments
-        overrides = []
-        for key, value in zip(keys, combo):
-            if isinstance(value, str) and ';' in value:
-                overrides.append(f"{key}='{value}'")
+    # Create list of parameter combinations (jobs to run)
+    param_combinations = [dict(zip(keys, combo)) for combo in combinations]
+    
+    # Track GPU jobs: {gpu_id: process_object or None}
+    gpu_jobs = {gpu: None for gpu in available_gpus}
+    
+    print(f"Starting job queue with {len(param_combinations)} jobs...\n")
+    
+    def launch_job(params, gpu_id, run_file):
+        """Launch a single job on specified GPU"""
+        command = ["python", run_file]
+        
+        # Add sweep parameters as overrides
+        for k, v in params.items():
+            if isinstance(v, str) and ';' in v:
+                command += [f"{k}='{v}'"]
             else:
-                overrides.append(f"{key}={value}")
+                command += [f"{k}={v}"]
         
-        # Assign GPU
-        gpu = cfg.available_gpus[gpu_idx % num_gpus]
+        print(f"Launching on GPU {gpu_id}: {params}")
+        print(f"  Command: {' '.join(command)}")
         
-        # Create descriptive name for this combination (safely)
-        try:
-            # Try to create a descriptive name
-            combo_dict = dict(zip(keys, combo))
-            combo_name = f"{combo_dict.get('clim', 'run')}_deg{combo_dict.get('degree', 'X')}_q{combo_dict.get('emph_quantile', 'X')}"
-        except:
-            combo_name = f"combo_{i}"
-        
-        print(f"\n[{i}/{len(combinations)}] Launching job on GPU {gpu}")
-        print(f"  Parameters: {dict(zip(keys, combo))}")
-        
-        # Launch command (removed hydra.run.dir as discussed)
-        cmd = ['python', 'run_exp.py'] + overrides
-        
-        print(f"  Command: {' '.join(cmd)}")
-        
-        subprocess.Popen(cmd, env={**os.environ, 'CUDA_VISIBLE_DEVICES': str(gpu)})
-        
-        gpu_idx += 1
+        return subprocess.Popen(
+            command,
+            env={**os.environ, 'CUDA_VISIBLE_DEVICES': str(gpu_id)}
+        )
+    
+    try:
+        # Main job distribution loop
+        while param_combinations or any(gpu_jobs.values()):
+            # Check for finished jobs and launch new ones
+            for gpu_id, job in list(gpu_jobs.items()):
+                # Check if job finished
+                if job is not None and job.poll() is not None:
+                    print(f"\n✓ Job finished on GPU {gpu_id}")
+                    gpu_jobs[gpu_id] = None
+                
+                # Launch new job if GPU is free and jobs remaining
+                if gpu_jobs[gpu_id] is None and param_combinations:
+                    params = param_combinations.pop(0)
+                    gpu_jobs[gpu_id] = launch_job(params, gpu_id, run_file)
+            
+            # Progress update
+            completed = len(combinations) - len(param_combinations) - sum(1 for j in gpu_jobs.values() if j is not None)
+            running = sum(1 for j in gpu_jobs.values() if j is not None)
+            pending = len(param_combinations)
+            
+            gpu_status = ', '.join([
+                f"GPU{gpu}:{'busy' if gpu_jobs[gpu] is not None else 'free'}" 
+                for gpu in available_gpus
+            ])
+            
+            print(f"\r[Progress] Completed: {completed}/{len(combinations)} | "
+                  f"Running: {running} ({gpu_status}) | Pending: {pending}  ",
+                  end='', flush=True)
+            
+            # Short sleep to reduce CPU usage
+            time.sleep(check_interval)
+    
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Interrupted! Cleaning up running jobs...")
+        for gpu_id, job in gpu_jobs.items():
+            if job is not None:
+                job.terminate()
+        print("Cleanup complete.")
+        return
+    
+    print(f"\n\n{'='*80}")
+    print(f"✓ All jobs finished!")
+    print(f"{'='*80}")
 
 if __name__ == "__main__":
     launcher()
