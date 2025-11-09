@@ -26,7 +26,7 @@ from eval.metrics import *
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
-@hydra.main(version_base=None, config_path="conf", config_name="config")
+@hydra.main(version_base=None, config_path="config_hydra", config_name="config")
 def main(cfg: DictConfig):
     """Main training function with Hydra config"""
     torch.manual_seed(42)
@@ -59,7 +59,7 @@ def main(cfg: DictConfig):
 
     # Generate unique run ID
     # args_dict = vars(args)
-    del args_dict['cuda_device']  # Remove cuda_device from args_dict to avoid it in run_id
+    # del args_dict['cuda_device']  # Remove cuda_device from args_dict to avoid it in run_id
     # run_id = generate_run_id(args_dict)
 
     # torch.manual_seed(42)
@@ -135,11 +135,11 @@ def main(cfg: DictConfig):
             raise RuntimeError(f"CUDA device {cuda_device} requested but CUDA is not available.")
 
     if logging:
-        exp = f'{clim}-{ref}/{transform_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
+        exp = f'conus_{transform_type}{degree}_LOCAspatioTemp{temp_enc}/{clim}-{ref}/{transform_type}_{layers}Layers_{degree}degree_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}_{val_period[0]}_{val_period[1]}'
         writer = SummaryWriter(f"{logging_path_address}/{exp}")
 
-
-    save_path = f'{save_path_address}/{clim}-{ref}/QM_{transform_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
+    job_path = f'{save_path_address}/jobs_LOCAspatioTemp{temp_enc}'
+    save_path = f'{job_path}/{clim}-{ref}/QM_{transform_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
     model_save_path = save_path
     if validation:
         val_save_path =  save_path + f'{val_period[0]}_{val_period[1]}/'
@@ -403,10 +403,10 @@ def main(cfg: DictConfig):
                 row = {"epoch": int(epoch), "loss": float(avg_val_loss), "metrics": {k: float(np.nanmedian(v[1])) for k, v in mean_bias_percentages.items()}}
                 with open(f"{val_save_path}/val_metrics.jsonl", "a") as f:
                     f.write(json.dumps(row) + "\n")
-                
-                if not os.path.exists(f"{save_path_address}/{clim}-{ref}/baseline.jsonl"):
+
+                if not os.path.exists(f"{job_path}/{clim}-{ref}/baseline.jsonl"):
                     row_baseline = {k: float(np.nanmedian(v[0])) for k, v in mean_bias_percentages.items()}
-                    with open(f"{save_path_address}/{clim}-{ref}/baseline_{val_period[0]}_{val_period[1]}.jsonl", "a") as f:
+                    with open(f"{job_path}/{clim}-{ref}/baseline_{val_period[0]}_{val_period[1]}.jsonl", "a") as f:
                         f.write(json.dumps(row_baseline) + "\n")
 
                 if logging:

@@ -52,3 +52,5 @@ analysis_ensemble_test.ipynb
 outputs_AdamW
 runs_revised_AdamW
 runs_CNN
+runs_hydra
+outputs_hydra
