@@ -287,9 +287,9 @@ squeue -u $USER
 If you use this code in your research, please cite:
 
 ```bibtex
-@software{dclimad_ba_2024,
-  title={dCLIMAD-BA: Deep Learning Climate Downscaling with Bias Adjustment},
-  author={[Your Name]},
+@software{dclimad_ba_2025,
+  title={dCLIMAD-BA: Differentiable Climate Model Adjustment and Downscaling - Bias Adjustment Only},
+  author={[Kamlesh Sawadekar]},
   year={2024},
   url={https://github.com/kasProg/dCLIMAD-BA},
   version={1.0}
@@ -308,13 +308,10 @@ Contributions are welcome! Please see our contributing guidelines:
 
 ## 📧 Contact
 
-- **Primary Contact**: [Your Email]
+- **Primary Contact**: kas7897@psu.edu
 - **Issues**: [GitHub Issues](https://github.com/kasProg/dCLIMAD-BA/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/kasProg/dCLIMAD-BA/discussions)
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
