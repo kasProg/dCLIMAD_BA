@@ -8,7 +8,7 @@ for exp_root in "$ROOT"/outputs_AdamW/jobs_monotone_LOCAspatioTempMLP_spatialLos
   mkdir -p "$outdir"
 
   echo "[run] $model"
-  python "$ROOT/demo_model_selector.py" \
+  python "$ROOT/run_model_selector.py" \
     --exp_root "$exp_root" \
     --out_csv  "$outdir/demo_select_livneh.csv" \
     --out_json "$outdir/demo_select_livneh.json" \

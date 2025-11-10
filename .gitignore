@@ -51,3 +51,6 @@ test
 analysis_ensemble_test.ipynb
 outputs_AdamW
 runs_revised_AdamW
+cmip6_exp.py
+*.code-workspaces
+slurm

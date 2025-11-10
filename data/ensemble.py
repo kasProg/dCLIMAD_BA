@@ -8,7 +8,7 @@ from data.helper import find_missing_dates, interpolate_missing_day
 from pathlib import Path
 
 
-#######--------THIS CODE COMPUTES ENSEMBLE OF CLIMATE MODELS (RIGHT NOW MODIFIED FOR diffDOWNSCALE)----------#########
+#######--------THIS CODE COMPUTES ENSEMBLE OF CLIMATE MODELS (RIGHT NOW MODIFIED FOR dCLIMAD)----------#########
 
 
 BASE_PATH = Path("/pscratch/sd/k/kas7897/diffDownscale/jobs")
