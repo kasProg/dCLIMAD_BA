@@ -593,11 +593,110 @@ class DataLoaderWrapper:
             raise ValueError(f"Unknown mode {mode}")
 
         return reconstructed
+    
+
+    def corr_matrix(self, group_index, groups=None):
+        """
+        Build per-group correlation matrices.
+        obs_tp: (T,P) daily observations at the (coarse) grid
+        group_index: (T,) int labels (e.g., 0..3 for seasons or 1..12 for months)
+        groups: optional sorted unique labels; inferred if None
+        Returns: dict {g: (P,P) corr} for each group g in groups
+        """
+        obs_tp = self.x_data.squeeze().cpu().numpy()  # (T,P)
+        if groups is None:
+            groups = np.unique(group_index)
+        corr_by_group = {}
+        for g in groups:
+            sel = (group_index == g)
+            data = obs_tp[sel]  # (Tg, P)
+            # corrcoef expects vars in rows -> transpose
+            corr = np.corrcoef(data.T)  # (P,P)
+            # clean numerical junk
+            corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+            corr_by_group[g] = corr
+        return corr_by_group
+    
+   # ---------- LOCA style neighbors per group, broadcast over time ----------
+    def select_neighbors_timeseries(
+        self,
+        K,                      # neighbors per location (exclude self)
+        group_index,            # (T,) int label per time (season or month)
+        corr_by_group,          # dict {g: (P,P)} from corr_slices_from_obs
+        length_scale_km=250.0,  # distance decay for locality
+        corr_threshold=0.0,     # keep only r>threshold (LOCA-style uses >0)
+        return_weights=True
+        ):
+            """
+            Returns:
+            neighbors_idx: (T, P, K)  int
+            distances_km:  (T, P, K)  float
+            weights:       (T, P, K)  float, if return_weights=True else None
+            """
+            coords = self.valid_coords
+            T = len(group_index)
+            groups = np.unique(group_index)
+            P = coords.shape[0]
+
+            # pairwise distances once
+            dist = haversine_km_matrix(coords)  # (P,P)
+
+            # cache per-group selections
+            group_neighbors = {}
+            group_dists = {}
+            group_weights = {}
+
+            # compute selections once per group
+            for g in groups:
+                corr = np.copy(corr_by_group[g])                 # (P,P)
+                corr = np.maximum(corr, 0.0)                     # positive-only
+                mask = corr > corr_threshold
+                np.fill_diagonal(mask, False)                    # exclude self
+
+                score = corr * np.exp(- (dist / length_scale_km)**2)  # (P,P)
+                score[~mask] = -np.inf
+
+                # top-K per row
+                idx_topk = np.argpartition(-score, kth=np.minimum(K-1, P-1), axis=1)[:, :K]
+                # resort by score desc for nicer ordering
+                row = np.arange(P)[:, None]
+                sel_scores = score[row, idx_topk]
+                order = np.argsort(-sel_scores, axis=1)
+                idx_topk = idx_topk[row, order]
+                d_topk = dist[row, idx_topk]
+
+                if return_weights:
+                    s = np.where(np.isfinite(sel_scores[row[:,0], order]), sel_scores, -1e9)  # stabilize
+                    s = sel_scores  # re-use computed
+                    s = np.where(np.isfinite(s), s, -1e9)
+                    s = s - np.max(s, axis=1, keepdims=True)
+                    w = np.exp(s)
+                    w = w / np.clip(w.sum(axis=1, keepdims=True), 1e-12, None)
+                else:
+                    w = None
+
+                group_neighbors[g] = idx_topk
+                group_dists[g] = d_topk
+                group_weights[g] = w
+
+            # broadcast to time axis
+            neighbors_idx = np.empty((T, P, K), dtype=int)
+            distances_km  = np.empty((T, P, K), dtype=float)
+            weights = np.empty((T, P, K), dtype=float) if return_weights else None
+
+            for t in range(T):
+                g = group_index[t]
+                neighbors_idx[t] = group_neighbors[g]
+                distances_km[t]  = group_dists[g]
+                if return_weights:
+                    weights[t] = group_weights[g]
+
+            return neighbors_idx, distances_km, weights
+
+   
 
 
-
-
-    ## THIS FUNCTION IS NOT WORKING PROPERLY YET
+   ## THIS FUNCTION IS NOT WORKING PROPERLY YET
     def reconstruct_from_chunks_and_patches(self, patches_batch, outputs, 
                                            chunk_size=None, stride=None, 
                                            total_time=None, N=None, 
@@ -691,105 +790,3 @@ class DataLoaderWrapper:
             raise ValueError(f"Unknown mode {mode}")
             
         return reconstructed, counts
-    
-
-
-    def corr_matrix(self, group_index, groups=None):
-        """
-        Build per-group correlation matrices.
-        obs_tp: (T,P) daily observations at the (coarse) grid
-        group_index: (T,) int labels (e.g., 0..3 for seasons or 1..12 for months)
-        groups: optional sorted unique labels; inferred if None
-        Returns: dict {g: (P,P) corr} for each group g in groups
-        """
-        obs_tp = self.x_data.squeeze().cpu().numpy()  # (T,P)
-        if groups is None:
-            groups = np.unique(group_index)
-        corr_by_group = {}
-        for g in groups:
-            sel = (group_index == g)
-            data = obs_tp[sel]  # (Tg, P)
-            # corrcoef expects vars in rows -> transpose
-            corr = np.corrcoef(data.T)  # (P,P)
-            # clean numerical junk
-            corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
-            corr_by_group[g] = corr
-        return corr_by_group
-    
-   # ---------- 2) neighbors per group, broadcast over time ----------
-    def select_neighbors_timeseries(
-        self,
-        K,                      # neighbors per location (exclude self)
-        group_index,            # (T,) int label per time (season or month)
-        corr_by_group,          # dict {g: (P,P)} from corr_slices_from_obs
-        length_scale_km=250.0,  # distance decay for locality
-        corr_threshold=0.0,     # keep only r>threshold (LOCA-style uses >0)
-        return_weights=True
-        ):
-            """
-            Returns:
-            neighbors_idx: (T, P, K)  int
-            distances_km:  (T, P, K)  float
-            weights:       (T, P, K)  float, if return_weights=True else None
-            """
-            coords = self.valid_coords
-            T = len(group_index)
-            groups = np.unique(group_index)
-            P = coords.shape[0]
-
-            # pairwise distances once
-            dist = haversine_km_matrix(coords)  # (P,P)
-
-            # cache per-group selections
-            group_neighbors = {}
-            group_dists = {}
-            group_weights = {}
-
-            # compute selections once per group
-            for g in groups:
-                corr = np.copy(corr_by_group[g])                 # (P,P)
-                corr = np.maximum(corr, 0.0)                     # positive-only
-                mask = corr > corr_threshold
-                np.fill_diagonal(mask, False)                    # exclude self
-
-                score = corr * np.exp(- (dist / length_scale_km)**2)  # (P,P)
-                score[~mask] = -np.inf
-
-                # top-K per row
-                idx_topk = np.argpartition(-score, kth=np.minimum(K-1, P-1), axis=1)[:, :K]
-                # resort by score desc for nicer ordering
-                row = np.arange(P)[:, None]
-                sel_scores = score[row, idx_topk]
-                order = np.argsort(-sel_scores, axis=1)
-                idx_topk = idx_topk[row, order]
-                d_topk = dist[row, idx_topk]
-
-                if return_weights:
-                    s = np.where(np.isfinite(sel_scores[row[:,0], order]), sel_scores, -1e9)  # stabilize
-                    s = sel_scores  # re-use computed
-                    s = np.where(np.isfinite(s), s, -1e9)
-                    s = s - np.max(s, axis=1, keepdims=True)
-                    w = np.exp(s)
-                    w = w / np.clip(w.sum(axis=1, keepdims=True), 1e-12, None)
-                else:
-                    w = None
-
-                group_neighbors[g] = idx_topk
-                group_dists[g] = d_topk
-                group_weights[g] = w
-
-            # broadcast to time axis
-            neighbors_idx = np.empty((T, P, K), dtype=int)
-            distances_km  = np.empty((T, P, K), dtype=float)
-            weights = np.empty((T, P, K), dtype=float) if return_weights else None
-
-            for t in range(T):
-                g = group_index[t]
-                neighbors_idx[t] = group_neighbors[g]
-                distances_km[t]  = group_dists[g]
-                if return_weights:
-                    weights[t] = group_weights[g]
-
-            return neighbors_idx, distances_km, weights
-
-   
