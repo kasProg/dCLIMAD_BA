@@ -1,16 +1,16 @@
-# dCLIMAD-BA: Deep Learning Climate Downscaling with Bias Adjustment
+# dCLIMAD-BA: Differentiable Climate Model Adjustment and Downscaling - Bias Adjustment Only
 
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.4.1-EE4C2C.svg?style=flat&logo=pytorch)](https://pytorch.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A sophisticated deep learning framework for statistical downscaling of climate model outputs with bias adjustment. This project combines advanced neural architectures with domain-specific climate science knowledge to produce high-resolution, bias-corrected precipitation data from coarse-resolution climate model outputs.
+A differentiable framework for climate model bias adjustment. This project combines advanced neural architectures with domain-specific climate science knowledge to produce bias-corrected precipitation data from coarse-resolution climate model outputs.
+
+NOTE: This code currently only does bias correction, the downscaling model will be available soon!
 
 ## 🌍 Overview
 
 Climate models produce valuable projections but at spatial resolutions (25-100km) too coarse for many impact studies. **dCLIMAD-BA** addresses this challenge by:
 
-- **Statistical Downscaling**: Transforms coarse climate model data to high-resolution gridded observations
 - **Bias Adjustment**: Corrects systematic biases in climate model outputs using physically-informed transformations
 - **Spatial-Temporal Modeling**: Leverages spatial correlations and temporal patterns for enhanced accuracy
 - **Multi-Model Support**: Works with CMIP6 climate models and observational datasets (Livneh, GridMET)
@@ -19,15 +19,11 @@ Climate models produce valuable projections but at spatial resolutions (25-100km
 
 ### Core Models
 
-1. **SpatioTemporalQM**: Advanced neural architecture with:
+**SpatioTemporalQM**: Advanced neural architecture with:
    - Temporal encoders (Conv1D, LSTM, Transformer)
    - Spatial attention with geographic awareness
-   - Monotone transformations for physical constraints
+   - Monotone-basis transformations for adjusting biases
 
-2. **QuantileMappingModel**: Classical statistical approach with:
-   - Polynomial and monotonic transformations
-   - Multiple temporal aggregation scales
-   - PCA-based variance decomposition
 
 ### Key Features
 
