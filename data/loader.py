@@ -593,106 +593,7 @@ class DataLoaderWrapper:
             raise ValueError(f"Unknown mode {mode}")
 
         return reconstructed
-
-
-
-
-    ## THIS FUNCTION IS NOT WORKING PROPERLY YET
-    def reconstruct_from_chunks_and_patches(self, patches_batch, outputs, 
-                                           chunk_size=None, stride=None, 
-                                           total_time=None, N=None, 
-                                           mode='mean'):
-        """
-        Reconstruct full spatial-temporal outputs from chunked and patched data.
-        
-        Args:
-            patches_batch: array-like of shape (B*n_chunks, P) 
-            outputs: torch.Tensor of shape (B*n_chunks, P, chunk_len) or (B*n_chunks*P, chunk_len)
-            chunk_size: temporal chunk length
-            stride: temporal stride between chunks
-            total_time: total number of timesteps
-            N: total number of spatial locations
-            mode: 'mean', 'first', or 'sum'
-            
-        Returns:
-            reconstructed: tensor of shape (N, total_time)
-            counts: tensor of shape (N, total_time)
-        """
-        
-        if chunk_size is None:
-            chunk_size = self.chunk_size
-        if stride is None:
-            stride = self.stride
-        if total_time is None:
-            total_time = self.x_data.shape[0]
-        if N is None:
-            N = self.valid_coords.shape[0]
-            
-        # Normalize inputs
-        if isinstance(patches_batch, torch.Tensor):
-            patches_np = patches_batch.cpu().numpy()
-        else:
-            patches_np = np.asarray(patches_batch)
-            
-        if isinstance(outputs, torch.Tensor):
-            outputs = outputs.cpu()
-        else:
-            outputs = torch.tensor(outputs)
-            
-        # Handle different output shapes
-        if outputs.dim() == 3:  # (B*n_chunks, P, chunk_len)
-            B_chunks, P, chunk_len = outputs.shape
-            outputs_flat = outputs.reshape(-1, chunk_len)  # (B*n_chunks*P, chunk_len)
-        elif outputs.dim() == 2:  # (B*n_chunks*P, chunk_len)
-            outputs_flat = outputs
-            chunk_len = outputs.shape[1]
-        else:
-            raise ValueError(f"Expected outputs shape (B*n_chunks, P, chunk_len) or (B*n_chunks*P, chunk_len), got {outputs.shape}")
-            
-        # Compute chunk starts
-        starts = list(range(0, total_time - chunk_size + 1, stride))
-        if (total_time - chunk_size) % stride != 0:
-            starts.append(total_time - chunk_size)
-        n_chunks = len(starts)
-        
-        # Verify patches shape
-        if patches_np.ndim != 2:
-            raise ValueError(f"patches_batch must be (B*n_chunks, P), got {patches_np.shape}")
-        
-        B_total, P = patches_np.shape
-        B = B_total // n_chunks
-        
-        # Initialize reconstruction
-        reconstructed = torch.zeros(N, total_time)
-        counts = torch.zeros(N, total_time, dtype=torch.int32)
-        
-        # Reconstruct
-        for b in range(B):
-            for c_idx, t_start in enumerate(starts):
-                t_end = t_start + chunk_len
-                batch_chunk_idx = b * n_chunks + c_idx
-                
-                for p in range(P):
-                    spatial_idx = int(patches_np[batch_chunk_idx, p])
-                    flat_idx = batch_chunk_idx * P + p
-                    
-                    # Add prediction
-                    reconstructed[spatial_idx, t_start:t_end] += outputs_flat[flat_idx]
-                    counts[spatial_idx, t_start:t_end] += 1
-        
-        # Aggregate
-        if mode == 'mean':
-            counts_f = counts.clamp(min=1).to(dtype=reconstructed.dtype)
-            reconstructed = reconstructed / counts_f
-        elif mode == 'first':
-            mask = counts > 0
-            reconstructed = torch.where(mask, reconstructed / counts.clamp(min=1), reconstructed)
-        elif mode != 'sum':
-            raise ValueError(f"Unknown mode {mode}")
-            
-        return reconstructed, counts
     
-
 
     def corr_matrix(self, group_index, groups=None):
         """
@@ -793,3 +694,99 @@ class DataLoaderWrapper:
             return neighbors_idx, distances_km, weights
 
    
+
+
+   ## THIS FUNCTION IS NOT WORKING PROPERLY YET
+    def reconstruct_from_chunks_and_patches(self, patches_batch, outputs, 
+                                           chunk_size=None, stride=None, 
+                                           total_time=None, N=None, 
+                                           mode='mean'):
+        """
+        Reconstruct full spatial-temporal outputs from chunked and patched data.
+        
+        Args:
+            patches_batch: array-like of shape (B*n_chunks, P) 
+            outputs: torch.Tensor of shape (B*n_chunks, P, chunk_len) or (B*n_chunks*P, chunk_len)
+            chunk_size: temporal chunk length
+            stride: temporal stride between chunks
+            total_time: total number of timesteps
+            N: total number of spatial locations
+            mode: 'mean', 'first', or 'sum'
+            
+        Returns:
+            reconstructed: tensor of shape (N, total_time)
+            counts: tensor of shape (N, total_time)
+        """
+        
+        if chunk_size is None:
+            chunk_size = self.chunk_size
+        if stride is None:
+            stride = self.stride
+        if total_time is None:
+            total_time = self.x_data.shape[0]
+        if N is None:
+            N = self.valid_coords.shape[0]
+            
+        # Normalize inputs
+        if isinstance(patches_batch, torch.Tensor):
+            patches_np = patches_batch.cpu().numpy()
+        else:
+            patches_np = np.asarray(patches_batch)
+            
+        if isinstance(outputs, torch.Tensor):
+            outputs = outputs.cpu()
+        else:
+            outputs = torch.tensor(outputs)
+            
+        # Handle different output shapes
+        if outputs.dim() == 3:  # (B*n_chunks, P, chunk_len)
+            B_chunks, P, chunk_len = outputs.shape
+            outputs_flat = outputs.reshape(-1, chunk_len)  # (B*n_chunks*P, chunk_len)
+        elif outputs.dim() == 2:  # (B*n_chunks*P, chunk_len)
+            outputs_flat = outputs
+            chunk_len = outputs.shape[1]
+        else:
+            raise ValueError(f"Expected outputs shape (B*n_chunks, P, chunk_len) or (B*n_chunks*P, chunk_len), got {outputs.shape}")
+            
+        # Compute chunk starts
+        starts = list(range(0, total_time - chunk_size + 1, stride))
+        if (total_time - chunk_size) % stride != 0:
+            starts.append(total_time - chunk_size)
+        n_chunks = len(starts)
+        
+        # Verify patches shape
+        if patches_np.ndim != 2:
+            raise ValueError(f"patches_batch must be (B*n_chunks, P), got {patches_np.shape}")
+        
+        B_total, P = patches_np.shape
+        B = B_total // n_chunks
+        
+        # Initialize reconstruction
+        reconstructed = torch.zeros(N, total_time)
+        counts = torch.zeros(N, total_time, dtype=torch.int32)
+        
+        # Reconstruct
+        for b in range(B):
+            for c_idx, t_start in enumerate(starts):
+                t_end = t_start + chunk_len
+                batch_chunk_idx = b * n_chunks + c_idx
+                
+                for p in range(P):
+                    spatial_idx = int(patches_np[batch_chunk_idx, p])
+                    flat_idx = batch_chunk_idx * P + p
+                    
+                    # Add prediction
+                    reconstructed[spatial_idx, t_start:t_end] += outputs_flat[flat_idx]
+                    counts[spatial_idx, t_start:t_end] += 1
+        
+        # Aggregate
+        if mode == 'mean':
+            counts_f = counts.clamp(min=1).to(dtype=reconstructed.dtype)
+            reconstructed = reconstructed / counts_f
+        elif mode == 'first':
+            mask = counts > 0
+            reconstructed = torch.where(mask, reconstructed / counts.clamp(min=1), reconstructed)
+        elif mode != 'sum':
+            raise ValueError(f"Unknown mode {mode}")
+            
+        return reconstructed, counts

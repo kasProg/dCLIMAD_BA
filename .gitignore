@@ -30,8 +30,6 @@ diffDownscale.code-workspace
 *.out
 *.sbatch
 temp_folder.py
-jobs_fault
-runs_fault
 jobs_revised
 jobs_revised_pca
 runs_revised
@@ -51,6 +49,9 @@ test
 analysis_ensemble_test.ipynb
 outputs_AdamW
 runs_revised_AdamW
+cmip6_exp.py
+*.code-workspace
+slurm
 runs_CNN
 runs_hydra
 outputs_hydra

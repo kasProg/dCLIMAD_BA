@@ -2,16 +2,14 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 from torch.nn import Parameter
+import torch.nn.functional as F
+import torch.fft as fft
 import math
 import torch.nn.functional as F
 # from lstm import CudnnLstmModel
 # from fno import FNO2d, FNO1d
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import pandas as pd
 import numpy as np
-import torch.fft as fft
 
 
 
@@ -53,18 +51,7 @@ class MonotoneMap1D(nn.Module):
         y = alpha * x + (w * bumps).sum(dim=-1) + c
         return y
 
-# Build the generator(s)
-def build_transform_generator(nx, hidden_dim, ny, num_layers):
-    layers = []
-    layers.append(nn.Linear(nx, hidden_dim))
-    layers.append(nn.ReLU())
-    layers.append(nn.Dropout(0.2))
-    for _ in range(num_layers - 2):
-        layers.append(nn.Linear(hidden_dim, hidden_dim))
-        layers.append(nn.ReLU())
-        layers.append(nn.Dropout(0.2))
-    layers.append(nn.Linear(hidden_dim, ny))
-    return nn.Sequential(*layers)
+
 
 
 class SpatioTemporalQM(nn.Module):
@@ -94,6 +81,7 @@ class SpatioTemporalQM(nn.Module):
             yhat = sum((x_target ** (i + 1)) * scales[i] for i in range(len(scales))) + shift
         yhat = F.relu(yhat)
         return yhat, params
+
 
 
 class STBlock(nn.Module):
@@ -149,230 +137,21 @@ class STBlock(nn.Module):
         z = self.sattn(self.n2(y), pos)   # spatial attn (already residual inside)
         return z
 
-class QuantileMappingModel(nn.Module):
-    def __init__(self, nx=1, hidden_dim=64, num_layers=2,
-                 modelType='ANN', degree=2, pca_mode=False,
-                 monotone=True):
-        super(QuantileMappingModel, self).__init__()
-        self.model_type = modelType
-        self.pca_mode = pca_mode
-        self.monotone = monotone
-        self.degree = degree
 
-        # Decide how many params the head must produce
-        if monotone:
-            # alpha, c, and (w_k, s_k, b_k) for k=1..K
-            self.ny = 2 + 3 * degree
-        else:
-            # your original: degree scales + 1 shift
-            self.ny = degree + 1
-
-        
-
-        # MLP
-        if num_layers == 0:
-            self.transform_generator = build_transform_generator(nx, hidden_dim, self.ny, 4)
-        else:
-            self.transform_generator = build_transform_generator(nx, hidden_dim, self.ny, num_layers)
-
-        # LSTM
-        lstm_layers = 3 if num_layers == 0 else num_layers
-        self.lstm = nn.LSTM(input_size=nx, hidden_size=hidden_dim,
-                            num_layers=lstm_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_dim, self.ny)
-
-        # CNN
-        self.cnn = TemporalCNN(
-            nx=nx, ny=self.ny, hidden=hidden_dim, num_blocks=num_layers,
-            kernel_size=3, base_dilation=2, dropout=0.1, causal=False
-        )
-
-        # Monotone map
-        if monotone:
-            self.monotone_map = MonotoneMap1D(n_bumps=degree)
-
-    def _time_scale_pool(self, param, time_scale):
-        # identical to your logic, just factored out
-        if str(time_scale) == 'daily':
-            return param
-        label_dummies = pd.get_dummies(time_scale)
-        weights_np = label_dummies.div(label_dummies.sum(axis=0), axis=1).values.astype(np.float32)
-        weights = torch.tensor(weights_np, device=param.device)
-        label_avg = torch.einsum('stp,tm->smp', param, weights)  # (sites, scale, params)
-        param = torch.einsum('tm,smp->stp', weights, label_avg)  # (sites, time, params)
-        return param
-
-    def forward(self, x, input_tensor, time_scale):
-        # Produce param tensors from the selected backbone(s)
-        if self.model_type == "LSTM":
-            lstm_out, _ = self.lstm(input_tensor)
-            params = [ self.fc(lstm_out) ]                 # [B, T, ny]
-        elif self.model_type == "CNN1d":
-            params = [ self.cnn(input_tensor) ]            # [B, T, ny]
-        elif self.model_type == "MLP_LSTM":
-            p0 = self.transform_generator(input_tensor)    # [B, T, ny]
-            lstm_out, _ = self.lstm(input_tensor)
-            p1 = self.fc(lstm_out)                         # [B, T, ny]
-            params = [p0, p1]
-        else:  # "ANN"/default
-            params = [ self.transform_generator(input_tensor) ]  # [B, T, ny]
-
-        transformed_outputs = []
-        pooled_params = []
-
-        for param in params:
-            # (Optional) pool across time_scale like your original code
-            param = self._time_scale_pool(param, time_scale)
-
-            # pca mode
-            if self.pca_mode:
-                x_input, x_residual = self.extract_high_pca_modes(x)
-            else:
-                x_input = x
-
-            if self.monotone:
-                # Monotone intensity transform (then gate at the end)
-                transformed_x = self.monotone_map(x_input, param)
-                # Final non-negativity gate (dry days => 0)
-                transformed_x = F.relu(transformed_x)
-            else:
-                # Original polynomial + ReLU
-                scales = [torch.exp(param[:, :, i]) for i in range(self.degree)]
-                shift  = param[:, :, self.degree]
-                transformed_x = sum((x_input ** (i + 1)) * scales[i] for i in range(self.degree)) + shift
-                transformed_x = F.relu(transformed_x)
-
-            if self.pca_mode:
-                transformed_x = transformed_x + x_residual
-
-            transformed_outputs.append(transformed_x)
-            pooled_params.append(param)
-
-        # Average if multiple heads (MLP_LSTM)
-        if len(transformed_outputs) > 1:
-            final_output = torch.stack(transformed_outputs, dim=0).mean(dim=0)
-            params_out   = torch.stack(pooled_params, dim=0).mean(dim=0)
-        else:
-            final_output = transformed_outputs[0]
-            params_out   = pooled_params[0]
-
-        return final_output, params_out
-    
-    def extract_high_pca_modes(self, X: torch.Tensor, min_variance: float = 0.90) -> tuple[torch.Tensor, torch.Tensor]:
-        # Step 1: Center the data (remove spatial mean)
-        X_mean = X.mean(dim=1, keepdim=True)
-        X_centered = X - X_mean  # shape: (coords, time)
-
-        # Step 2: Perform SVD
-        # X = U @ S @ Vh
-        U, S, Vh = torch.linalg.svd(X_centered, full_matrices=False)  # shapes: (coords, time), (min), (time, time)
-
-        # Step 3: Compute cumulative variance explained
-        S_squared = S ** 2
-        explained_variance = torch.cumsum(S_squared, dim=0) / S_squared.sum()
-        
-        # Step 4: Choose minimum k such that at least min_variance is explained
-        k = int((explained_variance >= min_variance).nonzero(as_tuple=True)[0][0].item()) + 1
-
-        # Step 3: Keep top-k modes
-        U_k = U[:, :k]           # (coords, k)
-        S_k = S[:k]
-        Vh_k = Vh[:k, :]         # (k, time)
-
-        X_top = U_k @ torch.diag(S_k) @ Vh_k  # shape: (coords, time)
-        X_top  = X_mean + X_top
-
-        X_residual = X - X_top
-
-        return X_top, X_residual
     
 
-    def extract_high_fourier_mode(self, series: torch.Tensor, high_mode_cutoff: int = 100) -> torch.Tensor:
-        """
-        Extracts the high-frequency Fourier modes from a time series.
-
-        Args:
-            series (torch.Tensor): Input tensor of shape (batch, time)
-            high_mode_cutoff (int): Frequencies above this are considered "high".
-
-        Returns:
-            torch.Tensor: Tensor containing only the high-frequency components.
-        """
-        freq_series = fft.fft(series, dim=-1)
-        high_only_freq = torch.zeros_like(freq_series)
-        high_only_freq[:, high_mode_cutoff:] = freq_series[:, high_mode_cutoff:]
-        # Inverse FFT to real domain of just the high modes
-        # high_only_series = fft.ifft(high_only_freq, dim=-1).real
-        return high_only_freq
-    
-    def reassemble_high_fourier_modes(self, transformed_high: torch.Tensor, original_series: torch.Tensor, high_mode_cutoff: int = 100) -> torch.Tensor:
-        """
-        Reassembles the time series by combining the original low-frequency modes with the transformed high-frequency modes.
-
-        Args:
-            transformed_high (torch.Tensor): Transformed high-frequency components.
-            original_series (torch.Tensor): Original time series to retain low-frequency components.
-            high_mode_cutoff (int): Frequencies above this are considered "high".
-
-        Returns:
-            torch.Tensor: Reconstructed time series with transformed high frequencies.
-        """
-        freq_series = fft.fft(original_series, dim=-1)
-        freq_series[:, high_mode_cutoff:] = transformed_high[:, high_mode_cutoff:]
-        # Inverse FFT to get back to the time domain
-        reconstructed_series = fft.ifft(freq_series, dim=-1).real
-        return reconstructed_series
-
-
-
-
-
-
-
-def selective_mode_polynomial_transform(
-    series: torch.Tensor,
-    poly_transform_fn,
-    low_mode_cutoff: int = 10,
-    high_mode_cutoff: int = 100
-):
-    """
-    Applies a selective transformation to different Fourier modes of a time series using a polynomial transformation.
-    
-    Args:
-        series (torch.Tensor): Input tensor of shape (batch, time)
-        poly_transform_fn (callable): A function that takes a real-valued series and returns a transformed series.
-        low_mode_cutoff (int): Frequencies below this are considered "low" and left untransformed.
-        high_mode_cutoff (int): Frequencies above this are considered "high" and transformed.
-    
-    Returns:
-        torch.Tensor: Reconstructed series after transforming selected modes.
-    """
-    # FFT (complex)
-    freq_series = fft.fft(series, dim=-1)
-
-    # Clone for modification
-    transformed_freq = freq_series.clone()
-
-    # High-frequency modes
-    high_only_freq = torch.zeros_like(freq_series)
-    high_only_freq[:, high_mode_cutoff:] = freq_series[:, high_mode_cutoff:]
-
-    # Inverse FFT to real domain of just the high modes
-    high_only_series = fft.ifft(high_only_freq, dim=-1).real
-
-    # Apply polynomial transformation in time domain
-    transformed_high = poly_transform_fn(high_only_series)
-
-    # FFT of transformed high part
-    transformed_high_freq = fft.fft(transformed_high, dim=-1)
-
-    # Replace high-frequency components
-    transformed_freq[:, high_mode_cutoff:] = transformed_high_freq[:, high_mode_cutoff:]
-
-    # Inverse FFT to return to time domain
-    reconstructed = fft.ifft(transformed_freq, dim=-1).real
-
-    return reconstructed
+# MLP builder
+def build_transform_generator(nx, hidden_dim, ny, num_layers):
+    layers = []
+    layers.append(nn.Linear(nx, hidden_dim))
+    layers.append(nn.ReLU())
+    layers.append(nn.Dropout(0.2))
+    for _ in range(num_layers - 2):
+        layers.append(nn.Linear(hidden_dim, hidden_dim))
+        layers.append(nn.ReLU())
+        layers.append(nn.Dropout(0.2))
+    layers.append(nn.Linear(hidden_dim, ny))
+    return nn.Sequential(*layers)
 
 
 
@@ -632,6 +411,230 @@ class TemporalSelfAttention(nn.Module):
         return z
 
 
+
+
+
+class QuantileMappingModel(nn.Module):
+    def __init__(self, nx=1, hidden_dim=64, num_layers=2,
+                 modelType='ANN', degree=2, pca_mode=False,
+                 monotone=True):
+        super(QuantileMappingModel, self).__init__()
+        self.model_type = modelType
+        self.pca_mode = pca_mode
+        self.monotone = monotone
+        self.degree = degree
+
+        # Decide how many params the head must produce
+        if monotone:
+            # alpha, c, and (w_k, s_k, b_k) for k=1..K
+            self.ny = 2 + 3 * degree
+        else:
+            # your original: degree scales + 1 shift
+            self.ny = degree + 1
+
+        
+
+        # MLP
+        if num_layers == 0:
+            self.transform_generator = build_transform_generator(nx, hidden_dim, self.ny, 4)
+        else:
+            self.transform_generator = build_transform_generator(nx, hidden_dim, self.ny, num_layers)
+
+        # LSTM
+        lstm_layers = 3 if num_layers == 0 else num_layers
+        self.lstm = nn.LSTM(input_size=nx, hidden_size=hidden_dim,
+                            num_layers=lstm_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, self.ny)
+
+        # CNN
+        self.cnn = TemporalCNN(
+            nx=nx, ny=self.ny, hidden=hidden_dim, num_blocks=num_layers,
+            kernel_size=3, base_dilation=2, dropout=0.1, causal=False
+        )
+
+        # Monotone map
+        if monotone:
+            self.monotone_map = MonotoneMap1D(n_bumps=degree)
+
+    def _time_scale_pool(self, param, time_scale):
+        # identical to your logic, just factored out
+        if str(time_scale) == 'daily':
+            return param
+        label_dummies = pd.get_dummies(time_scale)
+        weights_np = label_dummies.div(label_dummies.sum(axis=0), axis=1).values.astype(np.float32)
+        weights = torch.tensor(weights_np, device=param.device)
+        label_avg = torch.einsum('stp,tm->smp', param, weights)  # (sites, scale, params)
+        param = torch.einsum('tm,smp->stp', weights, label_avg)  # (sites, time, params)
+        return param
+
+    def forward(self, x, input_tensor, time_scale):
+        # Produce param tensors from the selected backbone(s)
+        if self.model_type == "LSTM":
+            lstm_out, _ = self.lstm(input_tensor)
+            params = [ self.fc(lstm_out) ]                 # [B, T, ny]
+        elif self.model_type == "CNN1d":
+            params = [ self.cnn(input_tensor) ]            # [B, T, ny]
+        elif self.model_type == "MLP_LSTM":
+            p0 = self.transform_generator(input_tensor)    # [B, T, ny]
+            lstm_out, _ = self.lstm(input_tensor)
+            p1 = self.fc(lstm_out)                         # [B, T, ny]
+            params = [p0, p1]
+        else:  # "ANN"/default
+            params = [ self.transform_generator(input_tensor) ]  # [B, T, ny]
+
+        transformed_outputs = []
+        pooled_params = []
+
+        for param in params:
+            # (Optional) pool across time_scale like your original code
+            param = self._time_scale_pool(param, time_scale)
+
+            # pca mode
+            if self.pca_mode:
+                x_input, x_residual = self.extract_high_pca_modes(x)
+            else:
+                x_input = x
+
+            if self.monotone:
+                # Monotone intensity transform (then gate at the end)
+                transformed_x = self.monotone_map(x_input, param)
+                # Final non-negativity gate (dry days => 0)
+                transformed_x = F.relu(transformed_x)
+            else:
+                # Original polynomial + ReLU
+                scales = [torch.exp(param[:, :, i]) for i in range(self.degree)]
+                shift  = param[:, :, self.degree]
+                transformed_x = sum((x_input ** (i + 1)) * scales[i] for i in range(self.degree)) + shift
+                transformed_x = F.relu(transformed_x)
+
+            if self.pca_mode:
+                transformed_x = transformed_x + x_residual
+
+            transformed_outputs.append(transformed_x)
+            pooled_params.append(param)
+
+        # Average if multiple heads (MLP_LSTM)
+        if len(transformed_outputs) > 1:
+            final_output = torch.stack(transformed_outputs, dim=0).mean(dim=0)
+            params_out   = torch.stack(pooled_params, dim=0).mean(dim=0)
+        else:
+            final_output = transformed_outputs[0]
+            params_out   = pooled_params[0]
+
+        return final_output, params_out
+    
+    def extract_high_pca_modes(self, X: torch.Tensor, min_variance: float = 0.90) -> tuple[torch.Tensor, torch.Tensor]:
+        # Step 1: Center the data (remove spatial mean)
+        X_mean = X.mean(dim=1, keepdim=True)
+        X_centered = X - X_mean  # shape: (coords, time)
+
+        # Step 2: Perform SVD
+        # X = U @ S @ Vh
+        U, S, Vh = torch.linalg.svd(X_centered, full_matrices=False)  # shapes: (coords, time), (min), (time, time)
+
+        # Step 3: Compute cumulative variance explained
+        S_squared = S ** 2
+        explained_variance = torch.cumsum(S_squared, dim=0) / S_squared.sum()
+        
+        # Step 4: Choose minimum k such that at least min_variance is explained
+        k = int((explained_variance >= min_variance).nonzero(as_tuple=True)[0][0].item()) + 1
+
+        # Step 3: Keep top-k modes
+        U_k = U[:, :k]           # (coords, k)
+        S_k = S[:k]
+        Vh_k = Vh[:k, :]         # (k, time)
+
+        X_top = U_k @ torch.diag(S_k) @ Vh_k  # shape: (coords, time)
+        X_top  = X_mean + X_top
+
+        X_residual = X - X_top
+
+        return X_top, X_residual
+    
+
+    def extract_high_fourier_mode(self, series: torch.Tensor, high_mode_cutoff: int = 100) -> torch.Tensor:
+        """
+        Extracts the high-frequency Fourier modes from a time series.
+
+        Args:
+            series (torch.Tensor): Input tensor of shape (batch, time)
+            high_mode_cutoff (int): Frequencies above this are considered "high".
+
+        Returns:
+            torch.Tensor: Tensor containing only the high-frequency components.
+        """
+        freq_series = fft.fft(series, dim=-1)
+        high_only_freq = torch.zeros_like(freq_series)
+        high_only_freq[:, high_mode_cutoff:] = freq_series[:, high_mode_cutoff:]
+        # Inverse FFT to real domain of just the high modes
+        # high_only_series = fft.ifft(high_only_freq, dim=-1).real
+        return high_only_freq
+    
+    def reassemble_high_fourier_modes(self, transformed_high: torch.Tensor, original_series: torch.Tensor, high_mode_cutoff: int = 100) -> torch.Tensor:
+        """
+        Reassembles the time series by combining the original low-frequency modes with the transformed high-frequency modes.
+
+        Args:
+            transformed_high (torch.Tensor): Transformed high-frequency components.
+            original_series (torch.Tensor): Original time series to retain low-frequency components.
+            high_mode_cutoff (int): Frequencies above this are considered "high".
+
+        Returns:
+            torch.Tensor: Reconstructed time series with transformed high frequencies.
+        """
+        freq_series = fft.fft(original_series, dim=-1)
+        freq_series[:, high_mode_cutoff:] = transformed_high[:, high_mode_cutoff:]
+        # Inverse FFT to get back to the time domain
+        reconstructed_series = fft.ifft(freq_series, dim=-1).real
+        return reconstructed_series
+
+
+
+
+def selective_mode_polynomial_transform(
+    series: torch.Tensor,
+    poly_transform_fn,
+    low_mode_cutoff: int = 10,
+    high_mode_cutoff: int = 100
+):
+    """
+    Applies a selective transformation to different Fourier modes of a time series using a polynomial transformation.
+    
+    Args:
+        series (torch.Tensor): Input tensor of shape (batch, time)
+        poly_transform_fn (callable): A function that takes a real-valued series and returns a transformed series.
+        low_mode_cutoff (int): Frequencies below this are considered "low" and left untransformed.
+        high_mode_cutoff (int): Frequencies above this are considered "high" and transformed.
+    
+    Returns:
+        torch.Tensor: Reconstructed series after transforming selected modes.
+    """
+    # FFT (complex)
+    freq_series = fft.fft(series, dim=-1)
+
+    # Clone for modification
+    transformed_freq = freq_series.clone()
+
+    # High-frequency modes
+    high_only_freq = torch.zeros_like(freq_series)
+    high_only_freq[:, high_mode_cutoff:] = freq_series[:, high_mode_cutoff:]
+
+    # Inverse FFT to real domain of just the high modes
+    high_only_series = fft.ifft(high_only_freq, dim=-1).real
+
+    # Apply polynomial transformation in time domain
+    transformed_high = poly_transform_fn(high_only_series)
+
+    # FFT of transformed high part
+    transformed_high_freq = fft.fft(transformed_high, dim=-1)
+
+    # Replace high-frequency components
+    transformed_freq[:, high_mode_cutoff:] = transformed_high_freq[:, high_mode_cutoff:]
+
+    # Inverse FFT to return to time domain
+    reconstructed = fft.ifft(transformed_freq, dim=-1).real
+
+    return reconstructed
 
 
 # class QuantileMappingModel(nn.Module):
