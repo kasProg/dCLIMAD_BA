@@ -59,48 +59,97 @@ conda activate dCLIMAD
 
 ### 1. Configuration
 
-Create or modify configuration files in `config_files/`:
+The project uses **Hydra** configuration management with sweep configs. Main configuration structure:
 
+```
+configs/
+├── config.yaml          # Main config with defaults
+└── sweep/               # Hyperparameter sweep configurations
+    ├── conv1d.yaml      # Conv1D temporal encoder experiments
+    ├── lstm.yaml        # LSTM-based experiments  
+    └── mlp.yaml         # MLP-based experiments
+```
+
+Example sweep configuration (`configs/sweep/conv1d.yaml`):
 ```yaml
-sweep:
-  clim: ['access_cm2', 'gfdl_esm4']
-  model_type: ['MLP', 'LSTM']
-  degree: [5, 8]
-  layers: [3, 4]
-  
-fixed:
-  cmip_dir: '/path/to/cmip6/data'
-  ref_dir: '/path/to/observations'
-  train_start: 1950
-  train_end: 1980
-  epochs: 400
-  batch_size: 100
+# @package _global_
+clim: ['access_cm2', 'gfdl_esm4', 'ipsl_cm6a_lr', 'miroc6', 'mpi_esm1_2_lr','mri_esm2_0']
+degree: [8, 10]
+emph_quantile: [0.5, 0.9]
+temp_enc: 'Conv1d'
+epochs: 500
+layers: 2
 ```
 
 ### 2. Training
 
+#### Single Experiment
 ```bash
-# Single experiment
-python run_exp.py --run_id my_experiment --config config_files/config.yaml
+# Using default sweep config (conv1d)
+python run_exp.py
 
-# Hyperparameter sweep
-python launcher.py --config config_files/config.yaml
+# Using specific sweep config
+python run_exp.py sweep=lstm
 
-# SLURM batch jobs
+# Override individual parameters
+python run_exp.py sweep=conv1d clim=access_cm2 epochs=100
+```
+
+#### Hyperparameter Sweeps
+```bash
+# Launch sweep with automatic GPU management
+python launcher.py
+
+# Use specific sweep configuration
+python launcher.py sweep=lstm
+
+# Override sweep parameters
+python launcher.py sweep=conv1d clim=access_cm2 epochs=200
+
+# Dry run to see what would be executed
+python launcher.py sweep=lstm dry_run=true
+```
+
+#### SLURM Batch Jobs
+```bash
+# Submit to SLURM queue
 sbatch slurm1.sbatch
+
+# Monitor job status
+squeue -u $USER
 ```
 
 ### 3. Evaluation
 
+#### Single Model Validation
 ```bash
-# Single model validation
-python run_val.py --run_id my_experiment --base_dir outputs/
+# Validate specific model run
+python run_val.py --run_id <run_id> --base_dir outputs/ 
 
-# Batch validation across models
-./run_val_batch.sh outputs/jobs/ 1965,1978
+# Validate with specific validation period
+python run_val.py --run_id <run_id> --base_dir outputs/ --val_period 1965,1978
+```
 
-# Model selection and ranking
-python run_model_selector.py --exp_root outputs/jobs/ --val_period 1965,1978
+#### Batch Validation
+```bash
+# Validate all models in directory
+./run_val_batch.sh outputs/experiment_name/ 1965,1978
+
+# Run in background mode
+RUN_IN_BACKGROUND=true ./run_val_batch.sh outputs/experiment_name/ 1965,1978
+```
+
+#### Model Selection and Ranking
+```bash
+# Rank all models by performance metrics
+python run_model_selector.py --exp_root outputs/experiment_name/
+
+# Use specific validation period for ranking
+python run_model_selector.py --exp_root outputs/experiment_name/ --val_period 1965,1978
+
+# Save results to custom files
+python run_model_selector.py --exp_root outputs/experiment_name/ \
+    --out_csv my_results.csv --out_json my_best_model.json
 ```
 
 ## 📁 Project Structure
