@@ -2,7 +2,7 @@
 
 # Which sweep config to use by default
 defaults:
-  - sweep: lstm
+  - sweep: conv1d
   - _self_
 
 

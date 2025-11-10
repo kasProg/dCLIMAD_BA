@@ -716,7 +716,7 @@ class DataLoaderWrapper:
             corr_by_group[g] = corr
         return corr_by_group
     
-   # ---------- 2) neighbors per group, broadcast over time ----------
+   # ---------- LOCA style neighbors per group, broadcast over time ----------
     def select_neighbors_timeseries(
         self,
         K,                      # neighbors per location (exclude self)

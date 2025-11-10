@@ -31,10 +31,18 @@ def launcher(cfg: DictConfig):
         if isinstance(value, (list, tuple, ListConfig)) and len(value) > 1:
             sweep_params[key] = list(value)
             print(f"✓ Sweep parameter: {key} = {value}")
+        elif isinstance(value, (list, tuple, ListConfig)) and len(value) == 1:
+            # Single item lists become single values
+            sweep_params[key] = [value[0]]
+            print(f"✓ Single parameter: {key} = {value[0]}")
+        elif not isinstance(value, (list, tuple, ListConfig)):
+            # Single values become single-item lists for consistency
+            sweep_params[key] = [value]
+            print(f"✓ Single parameter: {key} = {value}")
     
     if not sweep_params:
         print("\n❌ No sweep parameters detected!")
-        print("Make sure your sweep config has lists with multiple values.")
+        print("Make sure your sweep config has parameters to process.")
         return
     
     # Generate all combinations
