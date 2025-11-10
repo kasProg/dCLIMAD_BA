@@ -52,3 +52,6 @@ runs_revised_AdamW
 cmip6_exp.py
 *.code-workspace
 slurm
+runs_CNN
+runs_hydra
+outputs_hydra
