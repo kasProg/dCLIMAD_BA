@@ -7,7 +7,7 @@ A differentiable framework for climate model bias adjustment. This project combi
 
 NOTE 1: This code currently only does bias correction, the downscaling model will be available soon! 
 
-NOTE 2: 📜 The manuscript for this work is under preparation 
+NOTE 2: The manuscript for this work is under preparation 📜 
 
 ## 🌍 Overview
 
