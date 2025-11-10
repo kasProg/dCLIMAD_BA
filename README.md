@@ -5,7 +5,8 @@
 
 A differentiable framework for climate model bias adjustment. This project combines advanced neural architectures with domain-specific climate science knowledge to produce bias-corrected precipitation data from coarse-resolution climate model outputs.
 
-NOTE 1: This code currently only does bias correction, the downscaling model will be available soon!
+NOTE 1: This code currently only does bias correction, the downscaling model will be available soon! 
+
 NOTE 2: 📜 The manuscript for this work is under preparation 
 
 ## 🌍 Overview
