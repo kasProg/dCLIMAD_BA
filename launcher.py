@@ -5,7 +5,7 @@ import os
 import time
 from itertools import product
 
-@hydra.main(version_base=None, config_path="config_hydra", config_name="config")
+@hydra.main(version_base=None, config_path="configs", config_name="config")
 def launcher(cfg: DictConfig):
     """Launch multiple jobs with parameter sweeps, managing GPU availability"""
     

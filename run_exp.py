@@ -26,7 +26,7 @@ from eval.metrics import *
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
-@hydra.main(version_base=None, config_path="config_hydra", config_name="config")
+@hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig):
     """Main training function with Hydra config"""
     torch.manual_seed(42)
