@@ -48,6 +48,7 @@ demo_results.csv
 test
 analysis_ensemble_test.ipynb
 outputs_AdamW
+outputs_Adam
 runs_revised_AdamW
 cmip6_exp.py
 *.code-workspace
@@ -55,3 +56,4 @@ slurm
 runs_CNN
 runs_hydra
 outputs_hydra
+runs_AdamW

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="/pscratch/sd/k/kas7897/dCLIMAD_BA"
-for exp_root in "$ROOT"/outputs_AdamW/jobs_monotone2_LOCAspatioTempLSTM_spatialLoss/*-livneh ; do
+for exp_root in "$ROOT"/outputs_AdamW/jobs_LOCAspatioTempTCN/*-livneh ; do
   [[ -d "$exp_root" ]] || continue
   model="$(basename "$exp_root")"  # e.g., gfdl_esm4-gridmet
-  outdir="$ROOT/outputs_AdamW/jobs_monotone2_LOCAspatioTempLSTM_spatialLoss/$model"
+  outdir="$ROOT/outputs_AdamW/jobs_LOCAspatioTempTCN/$model"
   mkdir -p "$outdir"
 
   echo "[run] $model"

@@ -1,11 +1,11 @@
 #!/bin/bash
 
 ROOT="/pscratch/sd/k/kas7897/dCLIMAD_BA"
-BASE_DIR="$ROOT/outputs/jobs_monotone_LOCAspatioTempLSTM_spatialLoss"
+BASE_DIR="$ROOT/outputs_Adam/jobs_monotone_spatioTempLSTM_spatialLoss"
 
 # Configuration
 VALIDATION_FLAG=""  # Set to "--validation" if needed
-TEST_PERIOD="--test_period 1970,2014"  # Adjust as needed
+TEST_PERIOD="--test_period 2001,2014"  # Adjust as needed
 
 # Colors
 GREEN='\033[0;32m'

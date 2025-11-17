@@ -85,17 +85,22 @@ input_attrs = config['input_attrs'].split(';')
 
 
 ### FOR TREND ANALYSIS
-trend_analysis = config['trend_analysis']
-scenario = config['scenario']
-# trend_future_period = [config['trend_start'], config['trend_end']]
-trend_future_period = [2015, 2099]
+if 'trend_analysis' not in config:
+    trend_analysis = True
+    scenario = 'ssp5_8_5'
+    trend_future_period = [2015, 2099]
+
+else:
+    trend_analysis = config['trend_analysis']
+    scenario = config['scenario']
+    trend_future_period = [config['trend_start'], config['trend_end']]
 
 
 
 
 
 train_period = [config['train_start'], config['train_end']]
-benchmarking = config['benchmarking']
+# benchmarking = config['benchmarking']
 
 
 # model params
@@ -110,7 +115,7 @@ epochs = config['epochs']
 autoregression = config['autoregression']
 lag = config['lag']
 wet_dry_flag = config['wet_dry_flag']
-pca_mode = config['pca_mode']
+# pca_mode = config['pca_mode']
 logging_path = config['logging_path']
 hidden_size = config['hidden_size']
 neighbors = config['neighbors'] if 'neighbors' in config else 16

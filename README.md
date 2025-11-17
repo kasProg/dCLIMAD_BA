@@ -94,7 +94,7 @@ python run_exp.py
 python run_exp.py sweep=lstm
 
 # Override individual parameters
-python run_exp.py sweep=conv1d clim=access_cm2 epochs=100
+python run_exp.py sweep=conv1d clim=access_cm2 epochs=100 degree=8 emph_quantile=0.5
 ```
 
 #### Hyperparameter Sweeps

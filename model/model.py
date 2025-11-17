@@ -6,8 +6,9 @@ import torch.nn.functional as F
 import torch.fft as fft
 import math
 import torch.nn.functional as F
-# from lstm import CudnnLstmModel
+# from lstm import CudnnLstmModels
 # from fno import FNO2d, FNO1d
+from .tcn import TemporalTCN
 import pandas as pd
 import numpy as np
 
@@ -95,6 +96,8 @@ class STBlock(nn.Module):
         self.tempModel = tempModel
         if self.tempModel == 'Conv1d':
             self.tenc = TemporalConv1d(dim, hidden=t_hidden, n_blocks=t_blocks, dropout=dropout)
+        elif self.tempModel == 'TCN':
+            self.tenc = TemporalTCN(dim, hidden=t_hidden, n_blocks=t_blocks, dropout=dropout)
         elif self.tempModel == 'LSTM':
             self.tenc = nn.LSTM(input_size=dim, hidden_size=dim, num_layers=t_blocks, dropout=dropout, batch_first=True)
         elif self.tempModel == 'MLP':
@@ -131,8 +134,11 @@ class STBlock(nn.Module):
                 y_ = self.tenc_conv(self.n1(x_.view(B, P, T, F_))).view(B*P, T, F_) + x_
                 y_ = self.tenc_mlp(self.n1(y_)) + y_
             y = y_.view(B, P, T, F_)  # (B,P,T,F)
+        elif self.tempModel in ['TCN']:
+            y = self.tenc(self.n1(x))
         else:
             y = self.tenc(self.n1(x)) + x     # temporal residual
+
        
         z = self.sattn(self.n2(y), pos)   # spatial attn (already residual inside)
         return z
