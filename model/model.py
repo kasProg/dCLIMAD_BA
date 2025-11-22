@@ -53,34 +53,177 @@ class MonotoneMap1D(nn.Module):
         return y
 
 
-
-
 class SpatioTemporalQM(nn.Module):
-    def __init__(self, f_in, f_model=64, heads=4, t_blocks=3, st_layers=2, degree=8, dropout=0.1, transform_type='monotone', temp_enc='Conv1d'):
+    """
+    Spatio-Temporal QM with smooth temporal parameterization via Fourier basis.
+
+    Shapes:
+        inps:          (B, P, T, F_in)
+        patches_latlon: whatever STBlock expects
+        x_target:      (B, P, T)
+        t_idx (optional): (T,) time index or DOY, used for Fourier basis.
+
+    If t_idx is None:
+        -> uses normalized t in [0,1] over the length T.
+
+    If t_idx is provided:
+        - If float: assumed already normalized to [0,1].
+        - If integer (e.g., 0..T-1 or 1..365):
+            -> normalized to [0,1] by dividing by max(t_idx).
+    """
+
+    def __init__(
+        self,
+        f_in,
+        f_model=64,
+        heads=4,
+        t_blocks=3,
+        st_layers=2,
+        degree=8,
+        dropout=0.1,
+        transform_type="monotone",   # "monotone" or "poly"
+        temp_enc="Conv1d",
+        n_harmonics=2,               # number of Fourier harmonics
+        enforce_nonneg=True,         # final ReLU on yhat
+    ):
         super().__init__()
-        self.embed = nn.Linear(f_in, f_model)
-        self.stacks = nn.ModuleList([STBlock(f_model, heads=heads, t_hidden=2*f_model,
-                                             t_blocks=t_blocks, dropout=dropout, tempModel=temp_enc) for _ in range(st_layers)])
+
+        self.f_in = f_in
+        self.f_model = f_model
+        self.degree = degree
         self.transform_type = transform_type
-        if self.transform_type == 'monotone':
-            self.to_params = nn.Linear(f_model, 2 + 3 * degree)  # alpha, c, (w_k, s_k, b_k) for k=1..K
+        self.enforce_nonneg = enforce_nonneg
+        self.n_harmonics = n_harmonics
+
+        # Input embedding
+        self.embed = nn.Linear(f_in, f_model)
+
+        # Spatio-temporal stacks
+        self.stacks = nn.ModuleList([
+            STBlock(
+                f_model,
+                heads=heads,
+                t_hidden=2 * f_model,
+                t_blocks=t_blocks,
+                dropout=dropout,
+                tempModel=temp_enc,
+            )
+            for _ in range(st_layers)
+        ])
+
+        # Output dimension (ny) of parameter vector
+        if self.transform_type == "monotone":
+            # alpha, c, (w_k, s_k, b_k) for k = 1..degree
+            self.ny = 2 + 3 * degree
         else:
-            self.to_params = nn.Linear(f_model, degree + 1)
+            # polynomial: sum_{i=1..degree} a_i x^i + b
+            self.ny = degree + 1
+
+        # Fourier basis size: 1 (constant) + 2 * n_harmonics (sin, cos)
+        self.n_basis = 1 + 2 * n_harmonics
+
+        # Map pooled hidden state -> Fourier coefficients for parameters
+        # Coeffs shape will be (B, P, n_basis, ny).
+        self.to_coeffs = nn.Linear(f_model, self.n_basis * self.ny)
+
         self.monotone = MonotoneMap1D(n_bumps=degree)
 
-    def forward(self, inps, patches_latlon, x_target):       # inps: (B,P,T,F_in), x_target: (B,P,T)
-        h = self.embed(inps)                                 # (B,P,T,Fm)
-        for blk in self.stacks:
-            h = blk(h, patches_latlon)                       # spatio-temporal mixing
-        params = self.to_params(h)                           # (B,P,T,ny)
-        if self.transform_type == 'monotone':
-            yhat = self.monotone(x_target, params)           # (B,P,T)
+    # ---------------------------------------------------------------------
+    def _fourier_basis(self, T, t_idx, device):
+        """
+        Build Fourier basis of shape (T, n_basis).
+
+        t_idx:
+            - None      -> uses linspace(0,1,T)
+            - tensor    -> if float, assumed in [0,1]; if int, normalized by max.
+        """
+        if t_idx is None:
+            # uniform time grid in [0,1]
+            t = torch.linspace(0.0, 1.0, T, device=device)
         else:
-            # polynomial transform
-            scales = [torch.exp(params[..., i]) for i in range(params.shape[-1]-1)]
-            shift  = params[..., -1]
-            yhat = sum((x_target ** (i + 1)) * scales[i] for i in range(len(scales))) + shift
-        yhat = F.relu(yhat)
+            t = t_idx.to(device)
+            if t.dtype.is_floating_point:
+                # assume already normalized to [0,1]
+                pass
+            else:
+                # integer time index or DOY -> normalize to [0,1]
+                max_t = t.max()
+                if max_t == 0:
+                    # degenerate, but avoid div-by-zero
+                    t = torch.zeros_like(t, dtype=torch.float32)
+                else:
+                    t = t.to(torch.float32) / max_t
+
+        # t in [0,1], shape (T,)
+        basis = [torch.ones(T, device=device)]  # constant term
+
+        for k in range(1, self.n_harmonics + 1):
+            basis.append(torch.sin(2 * math.pi * k * t))
+            basis.append(torch.cos(2 * math.pi * k * t))
+
+        basis = torch.stack(basis, dim=1)  # (T, n_basis)
+        return basis
+
+    # ---------------------------------------------------------------------
+    def forward(self, inps, patches_latlon, x_target, t_idx=None):
+        """
+        inps:          (B, P, T, F_in)
+        patches_latlon: as before
+        x_target:      (B, P, T)
+        t_idx:         (T,) optional time index / DOY.
+
+        Returns:
+            yhat:   (B, P, T)
+            params: (B, P, T, ny)
+        """
+        B, P, T, _ = inps.shape
+
+        # Embed inputs
+        h = self.embed(inps)  # (B, P, T, f_model)
+
+        # Spatio-temporal mixing
+        for blk in self.stacks:
+            h = blk(h, patches_latlon)  # (B, P, T, f_model)
+
+        # Temporal pooling over T to get a single representation per (B,P)
+        # Simple mean pooling; if you want fancier, change here.
+        h_pool = h.mean(dim=2)  # (B, P, f_model)
+
+        # Map pooled hidden state to Fourier coefficients for parameters
+        coeffs = self.to_coeffs(h_pool)  # (B, P, n_basis * ny)
+        coeffs = coeffs.view(B, P, self.n_basis, self.ny)  # (B, P, n_basis, ny)
+
+        # Build Fourier basis over time: (T, n_basis)
+        basis = self._fourier_basis(T, t_idx, device=h.device)  # (T, n_basis)
+
+        # Combine basis and coefficients to get time-varying params
+        # params[b,p,t,n] = sum_k coeffs[b,p,k,n] * basis[t,k]
+        # -> einsum: 'bpkn,tk -> bptn'
+        params = torch.einsum("bpkn,tk->bptn", coeffs, basis)  # (B, P, T, ny)
+
+        # Apply transform
+        if self.transform_type == "monotone":
+            yhat = self.monotone(x_target, params)  # (B, P, T)
+        else:
+            # Polynomial branch:
+            # params: (..., ny) = [a1..a_degree, b]
+            poly_coeffs = params[..., :-1]  # (B, P, T, degree)
+            shift = params[..., -1]         # (B, P, T)
+
+            # Positive scales, as in your earlier design
+            poly_coeffs = torch.exp(poly_coeffs)
+
+            degree = poly_coeffs.shape[-1]
+            powers = torch.stack(
+                [x_target ** (i + 1) for i in range(degree)],
+                dim=-1,
+            )  # (B, P, T, degree)
+
+            yhat = (powers * poly_coeffs).sum(dim=-1) + shift  # (B, P, T)
+
+        if self.enforce_nonneg:
+            yhat = F.relu(yhat)
+
         return yhat, params
 
 
