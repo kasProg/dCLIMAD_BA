@@ -158,8 +158,8 @@ class SpatioTemporalQM(nn.Module):
         basis = [torch.ones(T, device=device)]  # constant term
 
         for k in range(1, self.n_harmonics + 1):
-            basis.append(torch.sin(2 * math.pi * k * t))
-            basis.append(torch.cos(2 * math.pi * k * t))
+            basis.append(torch.sin(2 * math.pi * k * t[0])) ## t is same across batch and patches
+            basis.append(torch.cos(2 * math.pi * k * t[0]))
 
         basis = torch.stack(basis, dim=1)  # (T, n_basis)
         return basis

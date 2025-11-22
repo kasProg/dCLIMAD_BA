@@ -10,6 +10,7 @@ import numpy as np
 from sklearn.neighbors import NearestNeighbors, BallTree
 from torch.utils.data import Dataset
 from scipy.stats import pearsonr
+import pandas as pd
 
 ### Some limitations: 
 # Loyal to CONUS region, eg files named clipped_US
@@ -28,7 +29,7 @@ def haversine_km_matrix(coords):
 class DataLoaderWrapper:
     def __init__(self, clim, scenario, ref, period, ref_path, cmip6_dir, shapefile_filter_path,
                  input_x, input_attrs, ref_var, save_path, stat_save_path, crd='all', batch_size=100, train=True, autoregression = False, lag=3, 
-                 chunk=False, chunk_size = 365, stride = 90, wet_dry_flag=False, device=0):
+                 chunk=False, chunk_size = 365, stride = 90, wet_dry_flag=False, time_scale='daily', device=0):
         """
         Customizable climate data loader with future projection support.
         """
@@ -67,6 +68,7 @@ class DataLoaderWrapper:
 
         self.attr_tensor = self.get_attr_tensor()
         self.input_norm_tensor = self.normalize_data()
+        self.time_scale = time_scale
 
     def get_valid_coords(self):
         """Extracts valid latitude-longitude pairs."""
@@ -399,100 +401,139 @@ class DataLoaderWrapper:
         M = self.batch_size
         N = self.valid_coords.shape[0]
         T = len(self.time_x)
-        ## FOR LOCA-STYLE SEASONAL NEIGHBORS
-        season_labels = extract_time_labels(self.time_x, label_type='season')  # (T,)
-        # Create mapping dictionary
-        season_to_number = {
-            'DJF': 0,  # December-January-February (Winter)
-            'MAM': 1,  # March-April-May (Spring) 
-            'JJA': 2,  # June-July-August (Summer)
-            'SON': 3   # September-October-November (Fall)
-        }
 
-        # Convert using list comprehension
-        numerical_seasons_labels = np.array([season_to_number[season] for season in season_labels])
+        # --- GLOBAL SEASON LABELS (you already had this) ---
+        season_labels = extract_time_labels(self.time_x, label_type='season')  # (T,)
+        season_to_number = {
+            'DJF': 0,  # Winter
+            'MAM': 1,  # Spring
+            'JJA': 2,  # Summer
+            'SON': 3   # Fall
+        }
+        numerical_seasons_labels = np.array(
+            [season_to_number[season] for season in season_labels],
+            dtype=int
+        )
+
         corr_mask = self.corr_matrix(numerical_seasons_labels)
 
-        neigh, dist, __ = self.select_neighbors_timeseries(                 # (P,2) lat/lon
-                    K,                      # neighbors per location (exclude self)
-                    numerical_seasons_labels,            # (T,) int label per time (season or month)
-                    corr_mask,          # dict {g: (P,P)} from corr_slices_from_obs
-                    length_scale_km=250.0,  # distance decay for locality
-                    corr_threshold=0.0,     # keep only r>threshold (LOCA-style uses >0)
-                    return_weights=False
-                )  # neigh: (T, N, K)
-        
-        neigh = neigh.transpose(1, 2, 0) # reshaped to (N, K, T)
-      
-        # if neighbors is None:
-        #     neigh, _ = self.precompute_neighbors(val_crd=self.valid_coords, n_neighbors=K, use_haversine=use_haversine)
-        #     # corr_mask = self.seasonal_corr_mask(self.time_x, self.x_data, , threshold=0.0) 
-        # else:
-        #     neigh = np.asarray(neighbors)
+        neigh, dist, __ = self.select_neighbors_timeseries(
+            K,
+            numerical_seasons_labels,  # (T,) int label per time (season or month)
+            corr_mask,
+            length_scale_km=250.0,
+            corr_threshold=0.0,
+            return_weights=False
+        )  # neigh: (T, N, K)
+
+        neigh = neigh.transpose(1, 2, 0)  # (N, K, T)
 
         if batch_per_epoch is None:
             batch_per_epoch = max(1, N // M)
 
         rng = np.random.default_rng(seed)
+
+        # --- GLOBAL DOY-BASED TIME INDEX (for Fourier basis) ---
+        # Convert time_x -> day-of-year -> normalize to [0,1]
+        # If you want raw DOY ints, drop the division and do normalization in the model.
+        time_index = pd.DatetimeIndex(self.time_x)
+        if self.time_scale == 'monthly':
+            month = time_index.month.to_numpy()           # (T,) int 1..12
+            time_label_norm = (month).astype(np.float32) / 12.0       # (T,) float in (0,1]
+        elif self.time_scale == 'julian-day':
+            doy = time_index.dayofyear.to_numpy()           # (T,) int 1..365/366
+            time_label_norm = (doy).astype(np.float32) / 365.0       # (T,) float in [0,1)
+        elif self.time_scale == 'seasonal':
+            # seasonal labels already extracted above
+            season_nums = numerical_seasons_labels  # (T,) int 0..3
+            time_label_norm = (season_nums + 1).astype(np.float32) / 4.0  # (T,) float in (0,1]
+        else:  # daily
+            time_label_norm = np.arange(T).astype(np.float32) / T 
+        # we'll use time_label_norm as t_idx base
+
         # Build ALL rows (each row = one patch of indices length K+1)
         rows = []
         for _ in range(batch_per_epoch):
-            centers = rng.choice(N, size=M, replace=False)       
+            centers = rng.choice(N, size=M, replace=False)
             for c in centers:
-                row = np.empty((K + 1, ), dtype=int)
-
+                row = np.empty((K + 1,), dtype=int)
                 # Randomly select a season for this patch
                 g = numerical_seasons_labels[np.random.randint(T)]
-                
                 row[0] = c
-                # row[1:] = neigh[c]
                 row[1:] = neigh[c, :, g]  # select neighbors for season g
-
                 rows.append(row)
-        rows = np.asarray(rows, dtype=int)  # shape: (batch_per_epoch*M, K+1) 
+
+        rows = np.asarray(rows, dtype=int)  # (batch_per_epoch*M, K+1)
 
         ds = DataLoaderWrapper._RowDataset(self, rows)
 
         def collate_fn(batch):
             # batch is a list of items; each item is one patch row
 
-            patches_np = np.stack([b[0] for b in batch], axis=0)  # (B, K+1) numpy
-            patches    = torch.from_numpy(patches_np).long()      # (B, K+1) torch (CPU)
-            inps    = torch.stack([b[1] for b in batch], dim=0)              # (B, K+1, T, F)
-            xs      = torch.stack([b[2] for b in batch], dim=0)              # (B, K+1, T)
-            if len(batch[0]) == 4:
-                ys  = torch.stack([b[3] for b in batch], dim=0)              # (B, K+1, T)
-            # Apply chunking if requested
+            patches_np = np.stack([b[0] for b in batch], axis=0)  # (B, K+1)
+            patches = torch.from_numpy(patches_np).long()         # (B, K+1)
+            inps = torch.stack([b[1] for b in batch], dim=0)      # (B, K+1, T, F)
+            xs   = torch.stack([b[2] for b in batch], dim=0)      # (B, K+1, T)
+            has_y = (len(batch[0]) == 4)
+            if has_y:
+                ys = torch.stack([b[3] for b in batch], dim=0)    # (B, K+1, T)
+
+            # base time index tensor for full sequence
+            t_idx_full = torch.from_numpy(time_label_norm)               # (T,)
+
+            # --- TIME CHUNKING LOGIC ---
             if self.chunk:
-                B, P_, T = inps.shape[0], inps.shape[1], inps.shape[2]
+                B, P_, T_ = inps.shape[0], inps.shape[1], inps.shape[2]
                 L, S = self.chunk_size, self.stride
-                if T >= L:
-                    starts = list(range(0, T - L + 1, S))
-                    if (T - L) % S != 0:
-                        starts.append(T - L)
+                assert T_ == T, "T mismatch between data and time_x"
+
+                if T_ >= L:
+                    starts = list(range(0, T_ - L + 1, S))
+                    if (T_ - L) % S != 0:
+                        starts.append(T_ - L)
 
                     inps_chunks, xs_chunks = [], []
-                    ys_chunks = [] if len(batch[0]) == 4 else None
+                    ys_chunks = [] if has_y else None
+                    t_idx_chunks = []  # will become (B*n_chunks, L)
+
                     for t0 in starts:
                         t1 = t0 + L
+                        # slice along time
                         inps_chunks.append(inps[:, :, t0:t1, :])   # (B,P,L,F)
-                        xs_chunks.append(xs[:, :, t0:t1])         # (B,P,L)
-                        if ys_chunks is not None:
-                            ys_chunks.append(ys[:, :, t0:t1])     # (B,P,L)
+                        xs_chunks.append(xs[:, :, t0:t1])          # (B,P,L)
+                        if has_y:
+                            ys_chunks.append(ys[:, :, t0:t1])      # (B,P,L)
 
-                    inps = torch.cat(inps_chunks, dim=0)          # (B*n_chunks,P,L,F)
-                    xs   = torch.cat(xs_chunks,   dim=0)          # (B*n_chunks,P,L)
-                    if ys_chunks is not None:
-                        ys = torch.cat(ys_chunks, dim=0)          # (B*n_chunks,P,L)
+                        # corresponding time index slice (L,)
+                        t_slice = t_idx_full[t0:t1]                # (L,)
+                        # repeat for each item in this chunk (B,L)
+                        t_chunk = t_slice.unsqueeze(0).repeat(B, 1)
+                        t_idx_chunks.append(t_chunk)
+
+                    # concat chunks along batch dimension
+                    inps = torch.cat(inps_chunks, dim=0)           # (B*n_chunks,P,L,F)
+                    xs   = torch.cat(xs_chunks,   dim=0)           # (B*n_chunks,P,L)
+                    if has_y:
+                        ys = torch.cat(ys_chunks, dim=0)           # (B*n_chunks,P,L)
+                    t_idx = torch.cat(t_idx_chunks, dim=0)         # (B*n_chunks, L)
+
                     n_chunks = len(starts)
-                    patches  = patches.repeat(n_chunks, 1) 
-    
-            if len(batch[0]) == 4:
-                return patches, inps, xs, ys
-            return patches, inps, xs
+                    patches  = patches.repeat(n_chunks, 1)         # (B*n_chunks,K+1)
+                else:
+                    # Degenerate: T < L, no chunking actually possible
+                    t_idx = t_idx_full.unsqueeze(0).repeat(inps.shape[0], 1)  # (B,T)
+            else:
+                # No chunking: same time index for everyone; you can choose
+                # either shape (T,) or (B,T). I prefer (B,T) for consistency.
+                B = inps.shape[0]
+                t_idx = t_idx_full.unsqueeze(0).repeat(B, 1)       # (B, T)
 
-        # Now use batch_size=M to form a batch of M patch-rows
-        return DataLoader(ds, batch_size=M, shuffle=shuffle, collate_fn=collate_fn, num_workers=num_workers)
+            if has_y:
+                return patches, inps, xs, ys, t_idx
+            return patches, inps, xs, t_idx
+
+        return DataLoader(ds, batch_size=M, shuffle=shuffle,
+                        collate_fn=collate_fn, num_workers=num_workers)
 
     def precompute_neighbors(self, val_crd=None, n_neighbors=16, use_haversine=False):
         """

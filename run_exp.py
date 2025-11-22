@@ -157,7 +157,7 @@ def main(cfg: DictConfig):
         clim=clim, scenario='historical', ref=ref, period=train_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
         input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
         crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
-        chunk=chunk, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, device=device)
+        chunk=chunk, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, time_scale=time_scale, device=device)
 
     dataloader = data_loader.get_spatial_dataloader(K=neighbors)
 
@@ -168,16 +168,16 @@ def main(cfg: DictConfig):
         clim=clim, scenario='historical', ref=ref, period=val_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
         input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=val_save_path, stat_save_path = model_save_path,
         crd=spatial_extent_val, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression = autoregression, lag = lag, 
-        chunk=False, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, device=device)
+        chunk=False, chunk_size=chunk_size, stride=stride, wet_dry_flag=wet_dry_flag, time_scale=time_scale, device=device)
 
         dataloader_val = data_loader_val.get_spatial_dataloader(K=neighbors)
 
 
-    if time_scale == 'daily':
-        time_labels = time_labels_val = 'daily'
-    else:
-        time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
-        time_labels_val = helper.extract_time_labels(data_loader_val.load_dynamic_inputs()[1], label_type=time_scale) if validation else None
+    # if time_scale == 'daily':
+    #     time_labels = time_labels_val = 'daily'
+    # else:
+    #     time_labels = torch.tensor(helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale))
+    #     time_labels_val = torch.tensor(helper.extract_time_labels(data_loader_val.load_dynamic_inputs()[1], label_type=time_scale)) if validation else None
 
 
     nx = len(input_x)+ len(input_attrs)
@@ -218,7 +218,7 @@ def main(cfg: DictConfig):
         loss2 = 0
         loss3 = 0
 
-        for patches, batch_input_norm, batch_x, batch_y in dataloader:
+        for patches, batch_input_norm, batch_x, batch_y, time_labels in dataloader:
             # Move batch to device
 
             patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device)  # (B,P,2), numpy
@@ -226,9 +226,10 @@ def main(cfg: DictConfig):
             batch_input_norm = batch_input_norm.to(device)
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
+            time_labels = time_labels.to(device)
             # Forward pass
             # transformed_x, _ = model(batch_x, batch_input_norm, time_scale=time_labels)
-            transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x)
+            transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x, t_idx=time_labels)
 
 
             ## create empty tensor of shape batch_x
@@ -318,16 +319,17 @@ def main(cfg: DictConfig):
                 x_val = []
                 y_val = []
                 with torch.no_grad():
-                    for patches, batch_input_norm, batch_x, batch_y in dataloader_val:
+                    for patches, batch_input_norm, batch_x, batch_y, time_labels_val in dataloader_val:
                         
                         patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device) 
                         
                         batch_input_norm = batch_input_norm.to(device)
                         batch_x = batch_x.to(device)
                         batch_y = batch_y.to(device)
+                        time_labels_val = time_labels_val.to(device)
                         # transformed_x, _ = model(batch_x, batch_input_norm, time_labels_val)
 
-                        transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x)
+                        transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x, t_idx=time_labels_val)
 
                         # val_loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
                         if 'quantile' in loss_func:
