@@ -31,7 +31,7 @@ val_end: 1978
 
 # ============ Model Architecture ============
 monotone: true
-transform_type: 'monotone'
+transform_type: 'polynomial'
 hidden_size: 64
 autoregression: true
 lag: 3
@@ -65,8 +65,8 @@ spatial_extent: [0]
 spatial_extent_val: [0]
 
 # ============ Output Paths ============
-save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs_AdamW'
-logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs_AdamW'
+save_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/outputs/outputs_poly_AdamW'
+logging_path: '/pscratch/sd/k/kas7897/dCLIMAD_BA/runs/runs_poly_AdamW'
 
 # ============ GPU Settings ============
 available_gpus: [0, 1, 2, 3]
