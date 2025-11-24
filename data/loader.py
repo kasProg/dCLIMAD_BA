@@ -433,15 +433,14 @@ class DataLoaderWrapper:
 
         rng = np.random.default_rng(seed)
 
-        # --- GLOBAL DOY-BASED TIME INDEX (for Fourier basis) ---
-        # Convert time_x -> day-of-year -> normalize to [0,1]
-        # If you want raw DOY ints, drop the division and do normalization in the model.
-        time_index = pd.DatetimeIndex(self.time_x)
+        time_array = np.asarray(self.time_x)
+        # time_index = pd.to_datetime(time_array)
+        
         if self.time_scale == 'monthly':
-            month = time_index.month.to_numpy()           # (T,) int 1..12
+            month = np.array([t.month for t in time_array])           # (T,) int 1..12
             time_label_norm = (month).astype(np.float32) / 12.0       # (T,) float in (0,1]
         elif self.time_scale == 'julian-day':
-            doy = time_index.dayofyear.to_numpy()           # (T,) int 1..365/366
+            doy = np.array([t.dayofyr for t in time_array])           # (T,) int 1..365/366
             time_label_norm = (doy).astype(np.float32) / 365.0       # (T,) float in [0,1)
         elif self.time_scale == 'seasonal':
             # seasonal labels already extracted above

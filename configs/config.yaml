@@ -13,7 +13,7 @@ degree: ???
 emph_quantile: ???
 temp_enc: ???
 layers: ???
-epochs: 400
+epochs: 200
 
 
 # ============ Data Paths ============
@@ -39,7 +39,6 @@ time_scale: 'julian-day'
 
 
 # ============ Training Hyperparameters ============
-testepoch: 10
 batch_size: 2
 learning_rate: 1e-3
 

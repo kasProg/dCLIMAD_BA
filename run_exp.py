@@ -44,7 +44,7 @@ def main(cfg: DictConfig):
     cuda_device = cfg.get('cuda_device', '0')    
     
     # Generate unique run ID
-    run_id_dict = {k: v for k, v in args_dict.items() if k not in ['cuda_device', 'available_gpus']}
+    run_id_dict = {k: v for k, v in args_dict.items() if k not in ['cuda_device', 'available_gpus', 'epochs']}
     run_id = generate_run_id(run_id_dict)
     
     
@@ -69,7 +69,6 @@ def main(cfg: DictConfig):
 
     train_period = [cfg.train_start, cfg.train_end]
     val_period = [cfg.val_start, cfg.val_end]
-    # epochs = args.epochs
     epochs = cfg.epochs
 
 
