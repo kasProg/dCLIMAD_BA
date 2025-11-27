@@ -154,7 +154,7 @@ data_loader = DataLoaderWrapper(
     clim=clim, scenario='historical', ref=ref, period=test_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var=ref_var, save_path=save_path, stat_save_path = model_save_path,
     crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression, 
-    lag=lag, wet_dry_flag=wet_dry_flag, device=device)
+    lag=lag, wet_dry_flag=wet_dry_flag, time_scale=time_scale, device=device)
 
 dataloader = data_loader.get_spatial_dataloader(K=neighbors)
 valid_coords = data_loader.get_valid_coords()
@@ -166,7 +166,7 @@ if trend_analysis:
     clim=clim, scenario = scenario, ref=ref, period=trend_future_period, ref_path=ref_path, cmip6_dir=cmip6_dir, 
     input_x=input_x, input_attrs=input_attrs, ref_var='', save_path=future_save_path, stat_save_path = model_save_path, 
     crd=spatial_extent, shapefile_filter_path=shapefile_filter_path, batch_size=batch_size, train=train, autoregression=autoregression,lag=lag,
-    wet_dry_flag=wet_dry_flag, device=device)
+    wet_dry_flag=wet_dry_flag, time_scale=time_scale, device=device)
 
     dataloader_future = data_loader_future.get_spatial_dataloader(K=neighbors)
 
@@ -180,11 +180,11 @@ if autoregression:
 if wet_dry_flag:
     nx += 1  
 
-if time_scale == 'daily':
-    time_labels = time_labels_future = 'daily'
-else:
-    time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
-    time_labels_future = helper.extract_time_labels(data_loader_future.load_dynamic_inputs()[1], label_type=time_scale) if trend_analysis else None
+# if time_scale == 'daily':
+#     time_labels = time_labels_future = 'daily'
+# else:
+#     time_labels = helper.extract_time_labels(data_loader.load_dynamic_inputs()[1], label_type=time_scale)
+#     time_labels_future = helper.extract_time_labels(data_loader_future.load_dynamic_inputs()[1], label_type=time_scale) if trend_analysis else None
 
 # model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=transform_type, pca_mode=pca_mode).to(device)
 model = SpatioTemporalQM(f_in=nx, f_model=hidden_size, heads=2, t_blocks=layers, st_layers=1, degree=degree, dropout=0.1, transform_type=transform_type, temp_enc=temp_enc).to(device)
@@ -206,12 +206,12 @@ x = []
 y = []
 with torch.no_grad():
     for batch in dataloader:
-        patches, batch_input_norm, batch_x, batch_y = [b.to(device) for b in batch]
+        patches, batch_input_norm, batch_x, batch_y, time_labels = [b.to(device) for b in batch]
         patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device)  # (B,P,2), numpy
 
         # Forward pass
         # predictions, params = model(batch_x, batch_input_norm, time_scale = time_labels)
-        predictions, params = model(batch_input_norm, patches_latlon, batch_x)
+        predictions, params = model(batch_input_norm, patches_latlon, batch_x, t_idx = time_labels)
         # Store predictions
         transformed_x.append(predictions.cpu())
 
@@ -222,12 +222,12 @@ with torch.no_grad():
 
     if trend_analysis:
         for batch in dataloader_future:
-            patches, batch_input_norm, batch_x = [b.to(device) for b in batch]
+            patches, batch_input_norm, batch_x, time_labels_future = [b.to(device) for b in batch]
             patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device)  # (B,P,2), numpy
 
             # Forward pass
             # predictions, _ = model(batch_x, batch_input_norm, time_scale = time_labels_future)
-            predictions, _ = model(batch_input_norm, patches_latlon, batch_x)
+            predictions, _ = model(batch_input_norm, patches_latlon, batch_x, t_idx = time_labels_future)
 
             # Store predictions
             transformed_x_future.append(predictions.cpu())

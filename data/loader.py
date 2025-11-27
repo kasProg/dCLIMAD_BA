@@ -434,13 +434,25 @@ class DataLoaderWrapper:
         rng = np.random.default_rng(seed)
 
         time_array = np.asarray(self.time_x)
-        # time_index = pd.to_datetime(time_array)
         
         if self.time_scale == 'monthly':
-            month = np.array([t.month for t in time_array])           # (T,) int 1..12
+            # Handle different time array types for month extraction
+            try:
+                # Try cftime objects first
+                month = np.array([t.month for t in time_array])
+            except AttributeError:
+                # Handle numpy datetime64 or pandas datetime
+                time_pd = pd.to_datetime(time_array)
+                month = time_pd.month.to_numpy()
             time_label_norm = (month).astype(np.float32) / 12.0       # (T,) float in (0,1]
         elif self.time_scale == 'julian-day':
-            doy = np.array([t.dayofyr for t in time_array])           # (T,) int 1..365/366
+            # Handle different time array types for day-of-year extraction
+            try:
+                doy = np.array([t.dayofyr for t in time_array])
+            except AttributeError:
+                # Handle numpy datetime64 or pandas datetime
+                time_pd = pd.to_datetime(time_array)
+                doy = time_pd.dayofyear.to_numpy()
             time_label_norm = (doy).astype(np.float32) / 365.0       # (T,) float in [0,1)
         elif self.time_scale == 'seasonal':
             # seasonal labels already extracted above

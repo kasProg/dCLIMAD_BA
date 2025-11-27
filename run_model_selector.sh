@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="/pscratch/sd/k/kas7897/dCLIMAD_BA"
-output_dir="$ROOT/outputs/outputs_AdamW_harmonic/jobs_LOCAspatioTempConv1d"
+output_dir="$ROOT/outputs/outputs_AdamW_harmonic3/jobs_LOCAspatioTempConv1d"
 for exp_root in "$output_dir"/*-livneh ; do
   [[ -d "$exp_root" ]] || continue
   model="$(basename "$exp_root")"  # e.g., gfdl_esm4-gridmet
