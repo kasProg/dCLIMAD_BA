@@ -141,7 +141,7 @@ class DataLoaderWrapper:
         x_data = torch.cat(x_data, dim=-1)
         torch.save(time_x, f'{self.save_path}/time.pt')
         torch.save(x_data, f'{self.save_path}/x.pt')
-
+        
         return x_data.to(torch.float32), time_x
 
     def load_y_data(self):
@@ -166,6 +166,7 @@ class DataLoaderWrapper:
             if 'prec' in self.ref_var:
                 # Setting trace precipitation values to 0.0
                 y_data[y_data<0.254] = 0.0
+      
 
             torch.save(y_data, f'{self.save_path}/y.pt')
 
@@ -402,7 +403,7 @@ class DataLoaderWrapper:
         N = self.valid_coords.shape[0]
         T = len(self.time_x)
 
-        # --- GLOBAL SEASON LABELS (you already had this) ---
+        # --- GLOBAL SEASON LABELS ---
         season_labels = extract_time_labels(self.time_x, label_type='season')  # (T,)
         season_to_number = {
             'DJF': 0,  # Winter

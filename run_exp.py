@@ -231,12 +231,8 @@ def main(cfg: DictConfig):
             transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x, t_idx=time_labels)
 
 
-            ## create empty tensor of shape batch_x
-            # transformed_x = torch.tensor([0]).to(device)
-            # loss_l1 = model.get_weighted_l1_penalty(lambda_l1=1e-4)
-
-            # Compute the loss
-            # kl_loss = 0.699*kl_divergence_loss(transformed_x.T, batch_y.T, num_bins=1000)
+            #trasform log back
+            transformed_x= torch.expm1(transformed_x)
 
             if 'quantile' in loss_func:
                 dist_loss = w1 * distributional_loss_interpolated(transformed_x.movedim(-1, 0), batch_y.movedim(-1, 0), device=device, num_quantiles=1000, emph_quantile=emph_quantile)
@@ -360,6 +356,8 @@ def main(cfg: DictConfig):
                             val_loss += val_spatial_corr_loss
 
                         val_epoch_loss += val_loss.item()
+
+                    
                         # Store predictions
                         xt_val.append(transformed_x.detach().cpu())
                         patch_val.append(patches.detach().cpu())

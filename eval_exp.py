@@ -213,6 +213,13 @@ with torch.no_grad():
         # predictions, params = model(batch_x, batch_input_norm, time_scale = time_labels)
         predictions, params = model(batch_input_norm, patches_latlon, batch_x, t_idx = time_labels)
         # Store predictions
+
+
+        #antilog transform back
+        predictions = torch.expm1(predictions)
+        # batch_y = torch.expm1(batch_y)
+        batch_x = torch.expm1(batch_x)
+
         transformed_x.append(predictions.cpu())
 
         y.append(batch_y.cpu())
@@ -228,6 +235,10 @@ with torch.no_grad():
             # Forward pass
             # predictions, _ = model(batch_x, batch_input_norm, time_scale = time_labels_future)
             predictions, _ = model(batch_input_norm, patches_latlon, batch_x, t_idx = time_labels_future)
+
+            #antilog transform back
+            predictions = torch.expm1(predictions)
+            batch_x = torch.expm1(batch_x)
 
             # Store predictions
             transformed_x_future.append(predictions.cpu())
