@@ -20,7 +20,7 @@ def launcher(cfg: DictConfig):
     
     skip_keys = {
         'available_gpus', 'save_path', 'logging_path', 'cmip_dir', 
-        'ref_dir', 'defaults', 'loss', 'spatial_extent', 'spatial_extent_val',
+        'ref_dir', 'defaults', 'loss', 'spatial_extent', 'spatial_extent_val', 'spatial_extent_test',
         'check_interval'
     }
     

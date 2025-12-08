@@ -41,12 +41,24 @@ parser.add_argument('--validation', action='store_true')
 
 ## add argument for test period list
 parser.add_argument('--test_period', type=str, required=False, help='Test period, format: start_year,end_year')
+parser.add_argument('--spatial_extent', type=str, required=False, help='Spatial extent for evaluation, format: min_lat,max_lat,min_lon,max_lon')
+
 
 args = parser.parse_args()
 
 if args.test_period:
     args.test_period = [int(x) for x in args.test_period.split(',')]
     test_period= args.test_period
+
+
+#####----- For spatial Tests--------#####
+## For Spatial Test
+# try:
+#     spatial_extent =  None if not spatial_test  else config['spatial_extent_test']
+# except KeyError:
+#     spatial_extent =  None if not spatial_test  else config['spatial_extent_val']
+# shapefile_filter_path =  None if not spatial_test  else config['shapefile_filter_path']
+
 
 
 run_id = args.run_id
@@ -64,6 +76,13 @@ logging = True
 if validation:
     test_period = [config['val_start'], config['val_end']]
 
+
+if args.spatial_extent:
+    spatial_extent = [int(x) for x in args.spatial_extent.split(',')]
+    shapefile_filter_path = config['shapefile_filter_path']
+else:
+    spatial_extent =  None
+    shapefile_filter_path = None
 
 
 
@@ -123,14 +142,7 @@ neighbors = config['neighbors'] if 'neighbors' in config else 16
 
 # ny = 4 # number of params
 
-#####----- For spatial Tests--------#####
-## For Spatial Test
-spatial_test = config['spatial_test']
-try:
-    spatial_extent =  None if not spatial_test  else config['spatial_extent_test']
-except KeyError:
-    spatial_extent =  None if not spatial_test  else config['spatial_extent_val']
-shapefile_filter_path =  None if not spatial_test  else config['shapefile_filter_path']
+
 # crd =  [14, 15, 16, 17, 18] 
 # shape_file_filter = '/pscratch/sd/k/kas7897/us_huc/contents/WBDHU2.shp'
 
@@ -170,7 +182,6 @@ if trend_analysis:
 
     dataloader_future = data_loader_future.get_spatial_dataloader(K=neighbors)
 
-valid_coords = data_loader.get_valid_coords()
 _, time_x = data_loader.load_dynamic_inputs()
 nx = len(input_x)+ len(input_attrs)
 
@@ -191,10 +202,12 @@ model = SpatioTemporalQM(f_in=nx, f_model=hidden_size, heads=2, t_blocks=layers,
 
 # model = QuantileMappingModel1(nx=nx, max_degree=degree, hidden_dim=64, num_layers=layers, modelType=transform_type).to(device)
 
-    
+model_path = f'{model_save_path}/model_{testepoch}.pth'    
+ckpt = torch.load(model_path, map_location=device)
+model.load_state_dict(ckpt["model_state"])
+# optimizer.load_state_dict(ckpt["optimizer_state"])
+# start_epoch = ckpt["epoch"]
 
-
-model.load_state_dict(torch.load(f'{model_save_path}/model_{testepoch}.pth', weights_only=True, map_location=device))
 model.eval()
 transformed_x = []
 transformed_x_future = []
@@ -216,9 +229,9 @@ with torch.no_grad():
 
 
         #antilog transform back
-        predictions = torch.expm1(predictions)
+        # predictions = torch.expm1(predictions)
         # batch_y = torch.expm1(batch_y)
-        batch_x = torch.expm1(batch_x)
+        # batch_x = torch.expm1(batch_x)
 
         transformed_x.append(predictions.cpu())
 
@@ -237,8 +250,8 @@ with torch.no_grad():
             predictions, _ = model(batch_input_norm, patches_latlon, batch_x, t_idx = time_labels_future)
 
             #antilog transform back
-            predictions = torch.expm1(predictions)
-            batch_x = torch.expm1(batch_x)
+            # predictions = torch.expm1(predictions)
+            # batch_x = torch.expm1(batch_x)
 
             # Store predictions
             transformed_x_future.append(predictions.cpu())

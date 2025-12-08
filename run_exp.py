@@ -22,7 +22,7 @@ from data.loader import DataLoaderWrapper
 from data.helper import generate_run_id
 import data.helper as helper
 from eval.metrics import *
-
+import time
 
 ###-----The code is currently accustomed to CMIP6-Livneh Data format ----###
 
@@ -90,7 +90,7 @@ def main(cfg: DictConfig):
     learning_rate = cfg.learning_rate
     monotone = cfg.monotone
 
-    neighbors = cfg.neighbors if 'neighbors' in cfg else 16
+    neighbors = cfg.neighbors
 
 
     ## For Spatial Test
@@ -189,6 +189,7 @@ def main(cfg: DictConfig):
     # model = QuantileMappingModel(nx=nx, degree=degree, hidden_dim=64, num_layers=layers, modelType=transform_type, pca_mode=pca_mode,
     #                               monotone=monotone).to(device)
     model = SpatioTemporalQM(f_in=nx, f_model=hidden_size, heads=2, t_blocks=layers, st_layers=1, degree=degree, dropout=0.1, transform_type=transform_type, temp_enc=temp_enc).to(device)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
 
     # --- Resume training if checkpoint exists ---
     start_epoch = 0
@@ -200,9 +201,11 @@ def main(cfg: DictConfig):
         # Extract epoch number from filename
         start_epoch = int(os.path.basename(latest_ckpt).split('_')[1].split('.')[0])
         print(f"Resuming from checkpoint: {latest_ckpt}, epoch {start_epoch}")
-        model.load_state_dict(torch.load(latest_ckpt, map_location=device, weights_only=True))
+        ckpt = torch.load(latest_ckpt, map_location=device)
+        model.load_state_dict(ckpt["model_state"])
+        optimizer.load_state_dict(ckpt["optimizer_state"])
+        start_epoch = ckpt["epoch"]
         
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
 
     balance_loss = 0  # Adjust this weight to balance between distributional and rainy day losses
 
@@ -212,13 +215,16 @@ def main(cfg: DictConfig):
     for epoch in range(start_epoch + 1, num_epochs + 1):
         model.train()
         epoch_loss = 0
+        epoch_start = time.time()
+
         
         loss1 = 0
         loss2 = 0
         loss3 = 0
 
-        for patches, batch_input_norm, batch_x, batch_y, time_labels in dataloader:
+        for batch_idx, (patches, batch_input_norm, batch_x, batch_y, time_labels) in enumerate(dataloader):
             # Move batch to device
+            batch_start = time.time()
 
             patches_latlon = torch.tensor(valid_coords[patches.cpu().numpy()], dtype=batch_x.dtype).to(device)  # (B,P,2), numpy
 
@@ -226,13 +232,16 @@ def main(cfg: DictConfig):
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
             time_labels = time_labels.to(device)
+
+            fwd_start = time.time()
             # Forward pass
             # transformed_x, _ = model(batch_x, batch_input_norm, time_scale=time_labels)
             transformed_x, _ = model(batch_input_norm, patches_latlon, batch_x, t_idx=time_labels)
 
+            fwd_time = time.time() - fwd_start
 
             #trasform log back
-            transformed_x= torch.expm1(transformed_x)
+            # transformed_x= torch.expm1(transformed_x)
 
             if 'quantile' in loss_func:
                 dist_loss = w1 * distributional_loss_interpolated(transformed_x.movedim(-1, 0), batch_y.movedim(-1, 0), device=device, num_quantiles=1000, emph_quantile=emph_quantile)
@@ -267,6 +276,8 @@ def main(cfg: DictConfig):
                 spatial_corr_loss = spatial_correlation_loss(transformed_x, batch_y)
                 loss+= spatial_corr_loss
                 loss3 += spatial_corr_loss.item()
+            
+
 
 
             # ws_dist = 0.5*wasserstein_distance_loss(transformed_x.T, batch_y.T)
@@ -278,12 +289,28 @@ def main(cfg: DictConfig):
             # loss = dist_loss + ws_dist + balance_loss * rainy_loss
 
             # Backward pass and optimization
+            bwd_start = time.time()
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            bwd_time = time.time() - bwd_start
+            batch_time = time.time() - batch_start
+
 
             epoch_loss += loss.item()
-            # loss3 += trendloss.item()
+
+            if batch_idx % 100 == 0:
+                print(f"Batch {batch_idx}/{len(dataloader)} | "
+                    f"Loss: {loss.item():.4f} | "
+                    f"Quantile: {dist_loss.item():.4f} | "
+                    f"Rainy Day: {rainy_loss.item():.4f} | "
+                    f"Spatial Correlation: {spatial_corr_loss.item():.4f} | "
+                    f"Fwd: {fwd_time:.3f}s | "
+                    f"Bwd: {bwd_time:.3f}s | "
+                    f"Total: {batch_time:.3f}s")
+        
+        epoch_time = time.time() - epoch_start
 
 
         # Average loss for the epoch
@@ -291,6 +318,8 @@ def main(cfg: DictConfig):
         avg_epoch_loss1 = loss1 / len(dataloader)
         avg_epoch_loss2 = loss2 / len(dataloader)
         avg_epoch_loss3 = loss3 / len(dataloader)
+        print(f"Epoch {epoch} done in {epoch_time:.2f}s | Avg Loss: {avg_epoch_loss:.4f}")
+
 
 
         if logging:
@@ -302,8 +331,15 @@ def main(cfg: DictConfig):
         loss_list.append(avg_epoch_loss)
 
         if epoch % 10 == 0:
-            print(f'Epoch {epoch}, Average Loss: {avg_epoch_loss:.4f}, Average Loss1: {avg_epoch_loss1:.4f}, Average Loss2: {avg_epoch_loss2:.4f}, Average Loss3: {avg_epoch_loss3:.4f}')
-            torch.save(model.state_dict(), f'{save_path}/model_{epoch}.pth')
+
+            print(f'Epoch {epoch}, Average Loss: {avg_epoch_loss:.4f}, Average Loss1: {avg_epoch_loss1:.4f}, Average Loss2: {avg_epoch_loss2:.4f}')
+            checkpoint = {
+            "epoch": epoch,
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            }
+            torch.save(checkpoint, f"{save_path}/model_{epoch}.pth")
+
             
             # ====== VALIDATION SECTION ====== #
             if validation:

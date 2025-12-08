@@ -6,6 +6,8 @@ import pandas as pd
 from ibicus.debias import QuantileMapping, CDFt, DeltaChange, QuantileDeltaMapping, ScaledDistributionMapping, LinearScaling, ISIMIP, ECDFM
 from ibicus.evaluate.metrics import *
 import data.valid_crd as valid_crd
+from data.loader import DataLoaderWrapper
+
 
 ##### Needs Refactoring from Unit Manager; REFACTOR reference loading
 class BiasCorrectionBenchmark:
@@ -43,14 +45,33 @@ class BiasCorrectionBenchmark:
     def load_data(self):
         """Loads the historical and future climate model data and reference dataset."""
         print("Loading dataset for benchmarking...")
-        self.hist_time =  torch.load(f'{self.model_path}/time.pt', weights_only=False)
-        self.hist_model = torch.load(f'{self.model_path}/x.pt', map_location='cpu', weights_only=True).numpy()
+        if os.path.exists(f'{self.model_path}/x.pt'):
+            self.hist_time =  torch.load(f'{self.model_path}/time.pt', weights_only=False)
+            self.hist_model = torch.load(f'{self.model_path}/x.pt', map_location='cpu', weights_only=True).numpy()
 
-        self.test_time =  torch.load(f'{self.test_path}/time.pt', weights_only=False)
-        self.test_model = torch.load(f'{self.test_path}/x.pt', map_location='cpu', weights_only=True).numpy()
+            self.test_time =  torch.load(f'{self.test_path}/time.pt', weights_only=False)
+            self.test_model = torch.load(f'{self.test_path}/x.pt', map_location='cpu', weights_only=True).numpy()
 
-        self.reference = torch.load(f'{self.model_path}/y.pt', map_location='cpu', weights_only=True).numpy()
+            self.reference = torch.load(f'{self.model_path}/y.pt', map_location='cpu', weights_only=True).numpy()
+        else:
+            input_x = {'precipitation': ['pr', 'prec', 'prcp', 'PRCP', 'precipitation']}
+            dataloader = DataLoaderWrapper(
+                clim=self.clim, scenario='historical', ref=self.ref, period=self.hist_period, ref_path=self.model_path, cmip6_dir=self.model_path,
+                input_x=input_x, input_attrs=None, ref_var=self.clim_var, save_path=None, stat_save_path=None,
+                crd=None, shapefile_filter_path=None, batch_size=None, train=True, autoregression=None, lag=None,
+                chunk=None, chunk_size=None, stride=None, wet_dry_flag=None, time_scale=None, device=None)
+            
+            self.hist_model, self.hist_time = dataloader.load_dynamic_inputs()
+            self.reference, _ = dataloader.load_y_data()
 
+            dataloader_test = DataLoaderWrapper(
+                clim=self.clim, scenario=self.scenario, ref=self.ref, period=self.test_period, ref_path=self.test_path, cmip6_dir=self.test_path,
+                input_x=input_x, input_attrs=None, ref_var=self.clim_var, save_path=None, stat_save_path=None,
+                crd=None, shapefile_filter_path=None, batch_size=None, train=True, autoregression=None, lag=None,
+                chunk=None, chunk_size=None, stride=None, wet_dry_flag=None, time_scale=None, device=None)
+            
+            self.test_model, self.test_time = dataloader_test.load_dynamic_inputs()
+            
         ## needed for perfect model approach
         if os.path.exists(f'{self.model_path}/time_y.pt'):
             self.ref_time = torch.load(f'{self.model_path}/time_y.pt', weights_only=True)

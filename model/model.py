@@ -265,7 +265,7 @@ class STBlock(nn.Module):
         if self.tempModel in ['LSTM', 'MLP', 'MLP+LSTM', 'Transformer', 'Conv1d+MLP']:
             x_ = x.view(B * P, T, F_) # (BP,T,F)
             if self.tempModel == 'LSTM':
-                y_ = self.tenc(x_)[0] + x_  # (BP,T,F)
+                y_ = self.tenc(x_)[0] # (BP,T,F)
             elif self.tempModel == 'MLP':
                 y_ = self.tenc(self.n1(x_)) + x_ # (BP,T,F)
             elif self.tempModel == 'MLP+LSTM':
