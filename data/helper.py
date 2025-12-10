@@ -24,7 +24,7 @@ def search_path(search_pattern):
         return path
 
 
-def interpolate_time_slice(slice_data, lat_A, lon_A, lat_B, lon_B):
+def interpolate_time_slice(slice_data, lat_A, lon_A, lat_B, lon_B, method='nearest'):
     lon_A_2d, lat_A_2d = np.meshgrid(lon_A, lat_A)
     valid_mask = ~np.isnan(slice_data)
     points = np.column_stack((lat_A_2d[valid_mask], lon_A_2d[valid_mask]))

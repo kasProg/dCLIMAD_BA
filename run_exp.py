@@ -141,7 +141,10 @@ def main(cfg: DictConfig):
     save_path = f'{job_path}/{clim}-{ref}/QM_{transform_type}_layers{layers}_degree{degree}_quantile{emph_quantile}_scale{time_scale}/{run_id}_{train_period[0]}_{train_period[1]}/'
     model_save_path = save_path
     if validation:
-        val_save_path =  save_path + f'{val_period[0]}_{val_period[1]}/'
+        if spatial_test:
+            val_save_path =  save_path + f'{spatial_extent_val}/'
+        else:
+            val_save_path =  save_path + f'{val_period[0]}_{val_period[1]}/'
         # test_save_path = val_save_path + f'ep{testepoch}'
         os.makedirs(val_save_path, exist_ok=True)
 

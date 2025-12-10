@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ROOT="/pscratch/sd/k/kas7897/dCLIMAD_BA"
-BASE_DIR="$ROOT/outputs_Adam/jobs_monotone_spatioTempLSTM_spatialLoss"
+BASE_DIR="$ROOT/outputs/AdamW_harmonic2/jobs_LOCAspatioTempLSTM"
 
 # Configuration
 VALIDATION_FLAG=""  # Set to "--validation" if needed

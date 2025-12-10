@@ -228,18 +228,11 @@ def read_config_summary(trial_dir: Path) -> Dict[str, Any]:
                 pass
     return out
 
-def evaluate_trial(trial_dir: Path, val_period: Optional[str] = None) -> Optional[TrialResult]:
+def evaluate_trial(trial_dir: Path, val_folder: Optional[str] = None) -> Optional[TrialResult]:
     # Try to find val_metrics.jsonl - first in year-range folder if val_period provided, then direct
-    if val_period:
-        # Parse val_period like "1965,1978" into "1965_1978" folder name
-        start_year, end_year = val_period.split(',')
-        year_folder = f"{start_year.strip()}_{end_year.strip()}"
-        val_path = trial_dir / year_folder / VAL_LOG
-        base_path = trial_dir / year_folder / BASELINE_FILE
-    else:
-        val_path = trial_dir / VAL_LOG
-        base_path = trial_dir / BASELINE_FILE
-
+  
+    val_path = trial_dir / Path(val_folder) / VAL_LOG
+    base_path = trial_dir /  BASELINE_FILE
 
     run_id = os.path.basename(trial_dir).split('_')[0]
     if not val_path.exists():
@@ -321,10 +314,10 @@ def evaluate_trial(trial_dir: Path, val_period: Optional[str] = None) -> Optiona
 ########################
 # 4) Batch orchestration
 ########################
-def scan_and_rank(root: str, val_period: Optional[str] = None) -> Dict[str, Any]:
+def scan_and_rank(root: str, val_period: Optional[str] = None, spatial_extent: Optional[str] = None) -> Dict[str, Any]: 
     rootp = Path(root)
     results: List[TrialResult] = []
-    
+
     # Find trial directories - look for either direct val_metrics.jsonl or year-range folders
     trial_dirs = []
     for trial in sorted([p for p in rootp.glob("**/") if p.is_dir()]):
@@ -332,19 +325,26 @@ def scan_and_rank(root: str, val_period: Optional[str] = None) -> Dict[str, Any]
         has_val_log = False
         if val_period:
             start_year, end_year = val_period.split(',')
-            year_folder = f"{start_year.strip()}_{end_year.strip()}"
-            if (trial / year_folder / VAL_LOG).exists():
-                has_val_log = True
+            val_folder = f"{start_year.strip()}_{end_year.strip()}"
+        else:
+            val_folder = f"{spatial_extent}"
+            
+        if (trial / val_folder / VAL_LOG).exists():
+            has_val_log = True
+
         if not has_val_log and (trial / VAL_LOG).exists():
             has_val_log = True
         
         if has_val_log:
             trial_dirs.append(trial)
+
+    # print(trial_dirs)
     
     for trial in trial_dirs:
-        r = evaluate_trial(trial, val_period)
+        r = evaluate_trial(trial, val_folder)
         if r is not None:
             results.append(r)
+     
 
     # Filter out unstable runs first
     stable = [r for r in results if r.improved and r.good_tail and r.good_Ltail]
@@ -388,10 +388,13 @@ if __name__ == "__main__":
     ap.add_argument("--exp_root", required=True, help="Directory containing many trial subfolders")
     ap.add_argument("--out_csv", default="auto_select_results.csv")
     ap.add_argument("--out_json", default="auto_select_best.json")
-    ap.add_argument("--val_period", type=str, help="Validation period, format: start_year,end_year (e.g., 1965,1978)")
-    args = ap.parse_args()
+    ap.add_argument("--val_period", required=False, type=str, help="Validation period, format: start_year,end_year (e.g., 1965,1978)")
+    ap.add_argument('--spatial_extent', type=str, required=False, help='huc ids in the form [1,2]')
 
-    summary = scan_and_rank(args.exp_root, args.val_period)
+    args = ap.parse_args()
+    summary = scan_and_rank(args.exp_root, args.val_period, args.spatial_extent)
+
+
 
     # CSV table for quick viewing
     rows = summary["ranked"]

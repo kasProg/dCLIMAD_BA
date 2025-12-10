@@ -53,8 +53,8 @@ clim_var = 'pr'
 ref_var = config['ref_var']
 
 ### FOR TREND ANALYSIS
-trend_analysis = config['trend_analysis']
-scenario = config['scenario']
+trend_analysis = True
+scenario = 'ssp5_8_5'
 # trend_future_period = [config['trend_start'], config['trend_end']]
 trend_future_period = [2015, 2099]
 

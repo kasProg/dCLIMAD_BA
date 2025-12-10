@@ -57,3 +57,4 @@ runs_CNN
 runs_hydra
 outputs_hydra
 runs_AdamW
+data/bc_interp.py
