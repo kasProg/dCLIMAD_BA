@@ -25,7 +25,7 @@ for model in "$BASE_DIR"/*-livneh; do
       --testepoch "$best_epoch" \
       --base_dir "$BASE_DIR" \
       --test_period "1990,2014" \
-      --spatial_extent "1,13"&
+      --spatial_extent "7,10"&
     pids+=($!)
     gpu=$(( (gpu + 1) % NUM_GPUS ))
   else

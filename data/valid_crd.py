@@ -11,8 +11,7 @@ def valid_lat_lon(ds, var_name='prec', shapefile_path=None, attr='OBJECTID', att
     else:
         lat = ds.latitude.values
         lon = ds.longitude.values
-
-
+    
     # Create meshgrid for target coordinates
     lon_mesh, lat_mesh = np.meshgrid(lon, lat)
     # Create a mask for valid (non-NaN) values
@@ -22,7 +21,6 @@ def valid_lat_lon(ds, var_name='prec', shapefile_path=None, attr='OBJECTID', att
     valid_lats = lat_mesh[valid_mask]
     valid_lons = lon_mesh[valid_mask]
     valid_coords = np.column_stack((valid_lats, valid_lons))
-
     if shapefile_path is not None:
         # Load shapefile
         gdf = gpd.read_file(shapefile_path)

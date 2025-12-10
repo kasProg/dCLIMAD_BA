@@ -67,6 +67,7 @@ validation = args.validation
 base_dir = args.base_dir
 
 run_path = helper.load_run_path(run_id, base_dir=base_dir)
+print(run_path)
 # Load the config.yaml file
 with open(os.path.join(run_path, 'train_config.yaml'), 'r') as f:
     config = yaml.safe_load(f)
@@ -105,7 +106,7 @@ input_attrs = config['input_attrs'].split(';')
 
 ### FOR TREND ANALYSIS
 if 'trend_analysis' not in config:
-    trend_analysis = True
+    trend_analysis = False
     scenario = 'ssp5_8_5'
     trend_future_period = [2015, 2099]
 
@@ -156,7 +157,11 @@ if logging:
 
 save_path = run_path
 model_save_path = save_path
-save_path =  save_path + f'/{test_period[0]}_{test_period[1]}/'
+print(save_path)
+if spatial_extent:
+    save_path = save_path + f'/{spatial_extent}/'
+else:
+    save_path =  save_path + f'/{test_period[0]}_{test_period[1]}/'
 test_save_path = save_path + f'ep{testepoch}'
 os.makedirs(test_save_path, exist_ok=True)
 
