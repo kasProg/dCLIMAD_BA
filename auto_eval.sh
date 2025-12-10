@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="/pscratch/sd/k/kas7897/dCLIMAD_BA"
-BASE_DIR="$ROOT/outputs/spatial2_AdamW_harmonic2/jobs_LOCAspatioTempConv1d"
+BASE_DIR="$ROOT/outputs/AdamW_harmonic2/jobs_LOCAspatioTempLSTM"
 
 # Detect number of GPUs
 NUM_GPUS=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
@@ -14,8 +14,8 @@ bash "$ROOT/run_model_selector.sh"
 # 2. For each model, extract best trial info and run eval_exp.py on a different GPU
 gpu=0
 pids=()
-for model in "$BASE_DIR"/*-livneh; do
-  out_json="$model/demo_select_livneh.json"
+for model in "$BASE_DIR"/*-gridmet; do
+  out_json="$model/demo_select_gridmet.json"
   if [[ -f "$out_json" ]]; then
     run_id=$(jq -r '.best.run_id' "$out_json")
     best_epoch=$(jq -r '.best.best_epoch' "$out_json")
@@ -24,8 +24,7 @@ for model in "$BASE_DIR"/*-livneh; do
       --run_id "$run_id" \
       --testepoch "$best_epoch" \
       --base_dir "$BASE_DIR" \
-      --test_period "1990,2014" \
-      --spatial_extent "7,10"&
+      --test_period "1979,2014" &
     pids+=($!)
     gpu=$(( (gpu + 1) % NUM_GPUS ))
   else

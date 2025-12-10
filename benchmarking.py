@@ -65,7 +65,7 @@ save_path = run_path
 model_save_path = save_path
 save_path =  save_path + f'/{test_period[0]}_{test_period[1]}/'
 
-
+methods = ['QuantileMapping','ISIMIP', 'ECDFM', 'QuantileDeltaMapping', 'ScaledDistributionMapping', 'LinearScaling']
 
 bench = BiasCorrectionBenchmark(clim = clim,
                                 ref = ref,
@@ -73,7 +73,7 @@ bench = BiasCorrectionBenchmark(clim = clim,
                                 test_period = test_period, 
                                 scenario = 'historical', 
                                 clim_var = clim_var, 
-                                correction_methods = ['QuantileMapping', 'ISIMIP', 'ECDFM', 'QuantileDeltaMapping', 'ScaledDistributionMapping', 'LinearScaling'],  
+                                correction_methods = ['ISIMIP'],  
                                 model_path = model_save_path, 
                                 test_path = save_path)  
 bench.apply_correction()
@@ -89,7 +89,7 @@ if trend_analysis:
                                 test_period = trend_future_period, 
                                 scenario = scenario, 
                                 clim_var = clim_var, 
-                                correction_methods = ['QuantileMapping', 'ISIMIP', 'ECDFM', 'QuantileDeltaMapping', 'ScaledDistributionMapping', 'LinearScaling'],  
+                                correction_methods = ['QuantileMapping'],  
                                 model_path = model_save_path, 
                                 test_path = future_save_path)
     bench.apply_correction()

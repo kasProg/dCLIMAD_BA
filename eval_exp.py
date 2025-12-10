@@ -106,7 +106,7 @@ input_attrs = config['input_attrs'].split(';')
 
 ### FOR TREND ANALYSIS
 if 'trend_analysis' not in config:
-    trend_analysis = False
+    trend_analysis = True
     scenario = 'ssp5_8_5'
     trend_future_period = [2015, 2099]
 

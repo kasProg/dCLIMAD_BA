@@ -360,6 +360,27 @@ def calculate_annual_total(data, time_arr):
 
     return annual_max
 
+def calculate_rolling_mean(data, time_arr, window_size=365, center=True):
+    """
+    Calculates rolling mean over time for each coordinate.
+    
+    Parameters:
+        data (np.ndarray): Data array of shape (time, coordinates)
+        time_arr (array-like): Time array corresponding to data
+        window_size (int): Size of the rolling window in days (default: 365 for yearly)
+        center (bool): Whether to center the window (default: True)
+        
+    Returns:
+        np.ndarray: Rolling mean array of same shape as input data
+    """
+    # Convert to pandas DataFrame for easier rolling operations
+    df = pd.DataFrame(data, index=pd.to_datetime(time_arr))
+                
+    # Calculate rolling mean along time axis
+    rolling_mean = df.rolling(window=window_size, center=center, min_periods=1).mean()
+    
+    return rolling_mean.values
+
 def calculate_annual_mean(data, time_arr):
     # Convert time array to pandas datetime for grouping
     time_pd = pd.to_datetime(time_arr)
